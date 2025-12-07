@@ -154,6 +154,13 @@ class WALDuckDBStorage:
         self.current_wal_count = 0
         self.current_wal_start_time = time.time()
 
+        # Fsync directory to ensure new file entry is durable
+        dir_fd = os.open(self.config.base_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
         logger.info(f"Rotated to new WAL file: {wal_path.name}")
 
     def store(self, key: str, data: Dict[str, Any]):

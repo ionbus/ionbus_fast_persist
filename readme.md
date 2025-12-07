@@ -146,42 +146,50 @@ On startup:
 
 ### Crash Safety
 
-`fast_persist` provides robust crash safety through a two-layer protection
-mechanism:
+`fast_persist` is designed for crash consistency through a two-layer
+protection mechanism:
 
 **DuckDB Layer Protection:**
-- DuckDB is fully ACID-compliant and guarantees that the database file
-  will never be corrupted, even if the process is killed mid-write
+- DuckDB is fully ACID-compliant and designed to maintain database file
+  integrity even during crashes
 - Once a transaction commits (via `COMMIT`), those changes are durable
-  and will survive any crash
-- Uncommitted transactions are simply discarded on crash - the database
-  remains consistent with the last committed state
-- DuckDB uses its own internal write-ahead log and `fsync` operations to
-  ensure committed data reaches disk
+  and will survive process crashes
+- Uncommitted transactions are discarded on crash - the database remains
+  consistent with the last committed state
+- DuckDB uses its own internal write-ahead log and `fsync` operations
+  (by default) to ensure committed data reaches disk
 
 **Application WAL Layer Protection:**
 - All writes are immediately appended to application-level WAL files
   before being batched to DuckDB
-- Each WAL write is followed by `fsync()` to ensure data reaches stable
-  storage (disk), not just OS buffers
+- Each WAL write is followed by `fsync()` on both the file and directory
+  to ensure data and directory entries reach stable storage
 - If the process crashes during a DuckDB write operation, the WAL files
   preserve any data that wasn't yet committed
 - On restart, the recovery process replays all WAL entries and re-flushes
   them to DuckDB
-- This ensures zero data loss even if crashes occur between cache updates
-  and DuckDB commits, including power loss or OS crashes
+- This protects against data loss from process crashes and, under normal
+  filesystem behavior, power loss or OS crashes
 
-**Combined Guarantee:**
+**Combined Design:**
 
-Even in the worst-case scenario where the process is killed during an
-active DuckDB transaction:
-1. The DuckDB file remains readable and uncorrupted
+In typical crash scenarios (process termination, system crashes):
+1. The DuckDB file remains readable and consistent
 2. Any uncommitted data is preserved in WAL files
 3. The recovery process automatically restores all pending writes
-4. No data loss occurs, and the system continues operating normally
+4. The system continues operating normally
 
-This dual-layer approach provides both the performance of async writes and
-the reliability of fully durable storage.
+**Important Notes:**
+- Durability depends on the filesystem and storage hardware honoring
+  `fsync()` guarantees
+- Catastrophic failures (disk corruption, filesystem bugs) may still
+  cause data loss
+- For maximum durability, ensure the underlying storage is configured
+  for data integrity (e.g., write-back caching disabled or
+  battery-backed)
+
+This dual-layer approach provides both the performance of async writes
+and strong crash consistency under normal operating conditions.
 
 ## API Reference
 
