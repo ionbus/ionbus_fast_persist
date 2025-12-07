@@ -23,3 +23,5 @@ conda_build.sh
 metadata_conda_debug.yaml
 *.parquet 
 *.png 
+data.duckdb 
+wal_storage 
