@@ -56,6 +56,7 @@ class WALDuckDBStorage:
         self.current_wal_file = None
         self.current_wal_size = 0
         self.current_wal_count = 0
+        self.current_wal_start_time = None
         self.wal_sequence = 0
 
         # Initialize DuckDB
@@ -85,7 +86,11 @@ class WALDuckDBStorage:
         # Load existing data into cache
         result = self.conn.execute("SELECT key, data FROM storage").fetchall()
         for key, data in result:
-            self.cache[key] = data
+            # Deserialize JSON string back to dict
+            if isinstance(data, str):
+                self.cache[key] = json.loads(data)
+            else:
+                self.cache[key] = data
 
         logger.info(f"Loaded {len(self.cache)} existing records from DuckDB")
 
@@ -144,6 +149,7 @@ class WALDuckDBStorage:
         self.current_wal_file = open(wal_path, "a")
         self.current_wal_size = 0
         self.current_wal_count = 0
+        self.current_wal_start_time = time.time()
 
         logger.info(f"Rotated to new WAL file: {wal_path.name}")
 
@@ -175,9 +181,15 @@ class WALDuckDBStorage:
             self.current_wal_count += 1
 
             # Check if we need to rotate WAL or flush to DB
+            wal_age = (
+                time.time() - self.current_wal_start_time
+                if self.current_wal_start_time
+                else 0
+            )
             should_rotate = (
                 self.current_wal_size >= self.config.max_wal_size
                 or self.current_wal_count >= self.config.batch_size
+                or wal_age >= self.config.max_wal_age_seconds
             )
 
             if should_rotate:
@@ -194,14 +206,18 @@ class WALDuckDBStorage:
 
     def _flush_to_duckdb(self):
         """Flush pending writes to DuckDB and clean up old WAL files"""
-        with self.flush_lock:
+        # Copy pending writes under write_lock to avoid race condition
+        with self.write_lock:
             if not self.pending_writes:
                 return
+            writes_to_flush = dict(self.pending_writes)
+            self.pending_writes.clear()
 
+        with self.flush_lock:
             try:
                 # Prepare batch data
                 batch_data = []
-                for key, data in self.pending_writes.items():
+                for key, data in writes_to_flush.items():
                     batch_data.append(
                         (
                             key,
@@ -219,7 +235,7 @@ class WALDuckDBStorage:
                 self.conn.executemany(
                     """
                     INSERT OR REPLACE INTO storage (key, data, updated_at, version)
-                    VALUES (?, ?, ?, 
+                    VALUES (?, ?, ?,
                         COALESCE((SELECT version + 1 FROM storage WHERE key = ?), 1))
                 """,  # noqa: E501
                     [(k, d, t, k) for k, d, t in batch_data],
@@ -229,15 +245,15 @@ class WALDuckDBStorage:
 
                 logger.info(f"Flushed {len(batch_data)} records to DuckDB")
 
-                # Clear pending writes
-                self.pending_writes.clear()
-
                 # Clean up old WAL files (keep current one)
                 self._cleanup_old_wals()
 
             except Exception as e:
                 logger.error(f"Error flushing to DuckDB: {e}")
                 self.conn.execute("ROLLBACK")
+                # Restore failed writes back to pending_writes
+                with self.write_lock:
+                    self.pending_writes.update(writes_to_flush)
 
     def _cleanup_old_wals(self):
         """Remove WAL files that have been successfully persisted"""
