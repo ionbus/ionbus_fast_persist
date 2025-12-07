@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import duckdb
 import json
 import os
@@ -9,9 +10,8 @@ import sys
 import time
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 from dataclasses import dataclass
-from datetime import datetime
 import logging
 
 # Handle StrEnum for different Python versions
@@ -40,7 +40,7 @@ class StorageKeys(StrEnum):
     STATUS_INT = "status_int"
 
 
-def _parse_timestamp(ts: str | datetime | None) -> datetime | None:
+def _parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
     """Convert timestamp string to datetime object.
 
     Handles ISO 8601 format with or without timezone.
@@ -48,11 +48,11 @@ def _parse_timestamp(ts: str | datetime | None) -> datetime | None:
     """
     if ts is None:
         return None
-    if isinstance(ts, datetime):
+    if isinstance(ts, dt.datetime):
         return ts
     # Parse ISO 8601 string - fromisoformat handles timezone info
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         logger.warning(f"Could not parse timestamp: {ts}")
         return None
@@ -76,13 +76,34 @@ class WALDuckDBStorage:
     """
 
     def __init__(
-        self, db_path: str = "data.duckdb", config: Optional[WALConfig] = None
+        self,
+        date: dt.date | dt.datetime | str,
+        db_path: str = "data.duckdb",
+        config: WALConfig | None = None,
     ):
-        self.config = config or WALConfig()
-        self.db_path = db_path
+        # Convert date to isoformat date string (YYYY-MM-DD)
+        if isinstance(date, str):
+            # Parse ISO format string to datetime
+            date_obj = dt.datetime.fromisoformat(date.split("T")[0])
+            self.date_str = date_obj.date().isoformat()
+        elif isinstance(date, dt.datetime):
+            self.date_str = date.date().isoformat()
+        else:  # dt.date
+            self.date_str = date.isoformat()
 
-        # Create storage directory
+        # Update config to use date-specific directory
+        self.config = config or WALConfig()
+        # Append date subdirectory to base_dir
+        self.config.base_dir = os.path.join(self.config.base_dir, self.date_str)
+
+        # Create date-specific database path
+        db_dir = os.path.dirname(db_path) if os.path.dirname(db_path) else "."
+        db_name = os.path.basename(db_path)
+        self.db_path = os.path.join(db_dir, self.date_str, db_name)
+
+        # Create date-specific storage directories
         Path(self.config.base_dir).mkdir(parents=True, exist_ok=True)
+        Path(os.path.dirname(self.db_path)).mkdir(parents=True, exist_ok=True)
 
         # Threading primitives
         self.write_lock = threading.Lock()
@@ -250,9 +271,9 @@ class WALDuckDBStorage:
     def store(
         self,
         key: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         process_name: str | None = None,
-        timestamp: str | datetime | None = None,
+        timestamp: str | dt.datetime | None = None,
     ):
         """Store data with async write to WAL.
 
@@ -290,7 +311,7 @@ class WALDuckDBStorage:
                 "key": key,
                 "process_name": process_name,
                 "data": data,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": dt.datetime.now().isoformat(),
             }
             wal_entry = json.dumps(record) + "\n"
             wal_bytes = wal_entry.encode("utf-8")
@@ -322,7 +343,7 @@ class WALDuckDBStorage:
                     target=self._flush_to_duckdb, daemon=True
                 ).start()
 
-    def get_key(self, key: str) -> Optional[Dict[str, Dict[str, Any]]]:
+    def get_key(self, key: str) -> dict[str, dict[str, Any]] | None:
         """Get all process data for a given key.
 
         Args:
@@ -337,7 +358,7 @@ class WALDuckDBStorage:
 
     def get_key_process(
         self, key: str, process_name: str | None = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get data for specific key and process_name combination.
 
         Args:
@@ -391,7 +412,7 @@ class WALDuckDBStorage:
                                 timestamp,
                                 status,
                                 status_int,
-                                datetime.now(),
+                                dt.datetime.now(),
                                 key,
                                 process_name,
                             )
@@ -473,7 +494,7 @@ class WALDuckDBStorage:
 
         self._flush_to_duckdb()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get storage statistics"""
         with self.write_lock:
             wal_files = self._get_wal_files()
@@ -509,92 +530,3 @@ class WALDuckDBStorage:
         self.conn.close()
 
         logger.info("Storage system shut down complete")
-
-
-# Example usage
-if __name__ == "__main__":
-    import random
-    import string
-
-    # Configure the storage system
-    config = WALConfig(
-        base_dir="./wal_storage",
-        max_wal_size=1024 * 1024,  # 1MB per WAL
-        batch_size=100,  # Flush every 100 records
-        flush_interval_seconds=10,  # Or every 10 seconds
-    )
-
-    # Initialize storage
-    storage = WALDuckDBStorage("data.duckdb", config)
-
-    # Simulate async updates with multi-process tracking
-    def generate_update():
-        task_id = random.choice(["task_1", "task_2", "task_3"])
-        worker_id = random.choice(["worker1", "worker2", "worker3", None])
-        data = {
-            "value": random.randint(1, 1000),
-            StorageKeys.TIMESTAMP: datetime.now().isoformat(),
-            StorageKeys.STATUS: random.choice(
-                ["running", "completed", "failed"]
-            ),
-            StorageKeys.STATUS_INT: random.randint(0, 2),
-            "metadata": {"source": "simulator"},
-        }
-        if worker_id:
-            data[StorageKeys.PROCESS_NAME] = worker_id
-        return task_id, data, worker_id
-
-    # Test writes
-    print("Writing test data...")
-    for i in range(250):
-        key, data, worker_id = generate_update()
-        storage.store(key, data)
-
-        if i % 50 == 0:
-            stats = storage.get_stats()
-            print(f"After {i} writes: {stats}")
-
-    # Force final flush
-    storage.force_flush()
-
-    # Check final stats
-    final_stats = storage.get_stats()
-    print(f"Final stats: {final_stats}")
-
-    # Test retrieval
-    print("\nTesting multi-process retrieval:")
-    all_task1 = storage.get_key("task_1")
-    if all_task1:
-        print(f"task_1 has {len(all_task1)} processes:")
-        for proc_name, data in all_task1.items():
-            print(f"  {proc_name}: status={data.get('status')}")
-
-    # Test specific process retrieval
-    worker1_task1 = storage.get_key_process("task_1", "worker1")
-    if worker1_task1:
-        print(f"\ntask_1/worker1 data: {worker1_task1}")
-
-    # Clean shutdown
-    storage.close()
-
-    print("\nRestarting to test recovery...")
-
-    # Test recovery by creating new instance
-    storage2 = WALDuckDBStorage("data.duckdb", config)
-    recovery_stats = storage2.get_stats()
-    print(f"After recovery: {recovery_stats}")
-
-    # Verify data
-    if storage2.cache:
-        sample_key = list(storage2.cache.keys())[0]
-        all_processes = storage2.get_key(sample_key)
-        print(f"\nSample recovered key: {sample_key}")
-        if all_processes:
-            print(f"  Processes: {list(all_processes.keys())}")
-            sample_proc = list(all_processes.keys())[0]
-            print(
-                f"  Sample data for {sample_proc}: "
-                f"{storage2.get_key_process(sample_key, sample_proc)}"
-            )
-
-    storage2.close()

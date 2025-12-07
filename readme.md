@@ -59,6 +59,8 @@ and high-performance applications:
 
 ## Features
 
+- **Date-based storage isolation**: Each date gets separate subdirectories
+  for WAL files and DuckDB, allowing concurrent multi-date processing
 - **WAL-based writing**: All writes go to append-only WAL files first,
   ensuring minimal write latency
 - **Multi-process tracking**: Track data per process with automatic
@@ -106,10 +108,11 @@ conda install -c conda-forge backports.strenum
 ### Basic Example
 
 ```python
+import datetime as dt
 from fast_persist_claude import WALDuckDBStorage, WALConfig, StorageKeys
 
-# Initialize with default configuration
-storage = WALDuckDBStorage("data.duckdb")
+# Initialize with default configuration (date is required)
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb")
 
 # Store data using dictionary keys (typical FastAPI usage)
 # StorageKeys enum provides constants for special fields
@@ -145,13 +148,14 @@ storage.close()
 ### FastAPI Integration Example
 
 ```python
+import datetime as dt
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fast_persist_claude import WALDuckDBStorage, StorageKeys
-from datetime import datetime
 
 app = FastAPI()
-storage = WALDuckDBStorage("api_data.duckdb")
+# Initialize with current date - each date has separate storage
+storage = WALDuckDBStorage(dt.date.today(), "api_data.duckdb")
 
 class TaskUpdate(BaseModel):
     name: str
@@ -185,6 +189,8 @@ async def shutdown():
 ### Custom Configuration
 
 ```python
+import datetime as dt
+
 config = WALConfig(
     base_dir="./wal_storage",        # Directory for WAL files
     max_wal_size=10 * 1024 * 1024,   # 10MB per WAL file
@@ -193,7 +199,7 @@ config = WALConfig(
     flush_interval_seconds=30         # Flush every 30 seconds
 )
 
-storage = WALDuckDBStorage("data.duckdb", config)
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
 ```
 
 ## Configuration Options
@@ -205,6 +211,48 @@ storage = WALDuckDBStorage("data.duckdb", config)
 | `max_wal_age_seconds` | `300` (5 min) | Max age before WAL rotation |
 | `batch_size` | `1000` | Records before batch flush |
 | `flush_interval_seconds` | `30` | Force flush interval |
+
+## Date-Based Storage Isolation
+
+`fast_persist` requires a date when initializing storage, providing
+complete isolation between different dates. This enables:
+
+- **Concurrent multi-date processing**: Run separate processes for
+  different dates simultaneously without conflicts
+- **Clean data organization**: Each date's data stored in its own
+  subdirectory structure
+- **Independent recovery**: Each date can be recovered independently
+- **Simple data management**: Archive or delete data by date
+
+### Directory Structure
+
+```
+./storage/              # Base directory (configurable)
+  ├── 2025-01-15/       # Date-specific subdirectory
+  │   ├── wal_000001.jsonl
+  │   ├── wal_000002.jsonl
+  │   └── data.duckdb
+  ├── 2025-01-16/
+  │   ├── wal_000001.jsonl
+  │   └── data.duckdb
+  └── ...
+```
+
+### Usage Example
+
+```python
+import datetime as dt
+
+# Process data for specific date
+date = dt.date(2025, 1, 15)
+storage = WALDuckDBStorage(date, "data.duckdb")
+
+# Or use string format
+storage = WALDuckDBStorage("2025-01-15", "data.duckdb")
+
+# Or today's date
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb")
+```
 
 ## Multi-Process Tracking
 
@@ -374,15 +422,25 @@ storage.store("key", data)
 
 ### WALDuckDBStorage
 
-#### `__init__(db_path: str, config: Optional[WALConfig] = None)`
+#### `__init__(date: dt.date | dt.datetime | str, db_path: str = "data.duckdb", config: WALConfig | None = None)`
 
-Initialize the storage system.
+Initialize the storage system with date-based isolation.
 
 **Parameters:**
-- `db_path`: Path to DuckDB database file
+- `date`: Date for this storage instance (required). Can be:
+  - `dt.date` object (e.g., `dt.date.today()`)
+  - `dt.datetime` object (date portion extracted)
+  - ISO format string (e.g., `"2025-01-15"` or `"2025-01-15T10:30:00"`)
+- `db_path`: Path to DuckDB database file (default: `"data.duckdb"`)
 - `config`: Optional WALConfig for customization
 
-#### `store(key: str, data: Dict[str, Any], process_name: str | None = None, timestamp: str | datetime | None = None)`
+**Date-Based Storage Isolation:**
+- Each date gets its own subdirectory for both WAL files and DuckDB
+- Directory structure: `{base_dir}/{YYYY-MM-DD}/` for WAL files
+- Database path: `{db_dir}/{YYYY-MM-DD}/{db_name}` for DuckDB
+- This allows running multiple dates concurrently in separate processes
+
+#### `store(key: str, data: dict[str, Any], process_name: str | None = None, timestamp: str | dt.datetime | None = None)`
 
 Store data with optional process and time tracking.
 
@@ -406,7 +464,7 @@ and stored in separate indexed columns while remaining in the data dict:
 Data is stored with composite key `(key, process_name)` allowing
 multiple processes to track data under the same key.
 
-#### `get_key(key: str) -> Optional[Dict[str, Dict[str, Any]]]`
+#### `get_key(key: str) -> dict[str, dict[str, Any]] | None`
 
 Retrieve all process data for a given key.
 
@@ -423,7 +481,7 @@ key doesn't exist
 }
 ```
 
-#### `get_key_process(key: str, process_name: str | None = None) -> Optional[Dict[str, Any]]`
+#### `get_key_process(key: str, process_name: str | None = None) -> dict[str, Any] | None`
 
 Retrieve data for a specific key and process_name combination.
 
@@ -437,7 +495,7 @@ Retrieve data for a specific key and process_name combination.
 
 Force immediate flush of all pending writes to DuckDB.
 
-#### `get_stats() -> Dict[str, Any]`
+#### `get_stats() -> dict[str, Any]`
 
 Get current storage statistics.
 
