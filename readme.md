@@ -3,6 +3,40 @@
 A high-performance Python persistence layer combining Write-Ahead Logs (WAL)
 with DuckDB for fast asynchronous writes and reliable storage.
 
+<!-- TOC start (generated with https://bitdowntoc.derlin.ch/) -->
+
+- [Overview](#overview)
+- [Features](#features)
+- [Installation](#installation)
+   * [Dependencies](#dependencies)
+- [Usage](#usage)
+   * [Basic Example](#basic-example)
+   * [Custom Configuration](#custom-configuration)
+- [Configuration Options](#configuration-options)
+- [Architecture](#architecture)
+   * [Write Path](#write-path)
+   * [Read Path](#read-path)
+   * [Recovery Process](#recovery-process)
+   * [Crash Safety](#crash-safety)
+- [API Reference](#api-reference)
+   * [WALDuckDBStorage](#walduckdbstorage)
+      + [`__init__(db_path: str, config: Optional[WALConfig] = None)`](#__init__db_path-str-config-optionalwalconfig-none)
+      + [`store(key: str, data: Dict[str, Any])`](#storekey-str-data-dictstr-any)
+      + [`get(key: str) -> Optional[Dict[str, Any]]`](#getkey-str-optionaldictstr-any)
+      + [`force_flush()`](#force_flush)
+      + [`get_stats() -> Dict[str, Any]`](#get_stats-dictstr-any)
+      + [`close()`](#close)
+- [Example: Running the Demo](#example-running-the-demo)
+- [Thread Safety](#thread-safety)
+- [Performance Characteristics](#performance-characteristics)
+- [Use Cases](#use-cases)
+- [Limitations](#limitations)
+- [License](#license)
+- [Contributing](#contributing)
+
+<!-- TOC end -->
+
+
 ## Overview
 
 `fast_persist` provides a hybrid storage system that offers:
@@ -92,7 +126,7 @@ storage = WALDuckDBStorage("data.duckdb", config)
 
 1. Data is written to in-memory cache immediately
 2. Entry is appended to current WAL file
-3. WAL is rotated when size/count thresholds are met
+3. WAL is rotated when size/count/age thresholds are met
 4. Background thread periodically flushes batched writes to DuckDB
 5. Processed WAL files are deleted after successful flush
 
@@ -109,6 +143,43 @@ On startup:
 2. Replays all WAL entries into cache
 3. Flushes recovered data to DuckDB
 4. Cleans up processed WAL files
+
+### Crash Safety
+
+`fast_persist` provides robust crash safety through a two-layer protection
+mechanism:
+
+**DuckDB Layer Protection:**
+- DuckDB is fully ACID-compliant and guarantees that the database file
+  will never be corrupted, even if the process is killed mid-write
+- Once a transaction commits (via `COMMIT`), those changes are durable
+  and will survive any crash
+- Uncommitted transactions are simply discarded on crash - the database
+  remains consistent with the last committed state
+- DuckDB uses its own internal write-ahead log and `fsync` operations to
+  ensure committed data reaches disk
+
+**Application WAL Layer Protection:**
+- All writes are immediately appended to application-level WAL files
+  before being batched to DuckDB
+- If the process crashes during a DuckDB write operation, the WAL files
+  preserve any data that wasn't yet committed
+- On restart, the recovery process replays all WAL entries and re-flushes
+  them to DuckDB
+- This ensures zero data loss even if crashes occur between cache updates
+  and DuckDB commits
+
+**Combined Guarantee:**
+
+Even in the worst-case scenario where the process is killed during an
+active DuckDB transaction:
+1. The DuckDB file remains readable and uncorrupted
+2. Any uncommitted data is preserved in WAL files
+3. The recovery process automatically restores all pending writes
+4. No data loss occurs, and the system continues operating normally
+
+This dual-layer approach provides both the performance of async writes and
+the reliability of fully durable storage.
 
 ## API Reference
 
