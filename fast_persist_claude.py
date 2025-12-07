@@ -5,6 +5,7 @@ from __future__ import annotations
 import duckdb
 import json
 import os
+import sys
 import time
 import threading
 from pathlib import Path
@@ -13,8 +14,48 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 
+# Handle StrEnum for different Python versions
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    try:
+        from backports.strenum import StrEnum  # type: ignore
+    except ImportError:
+        # Fallback if backports not installed
+        from enum import Enum
+
+        class StrEnum(str, Enum):  # type: ignore
+            pass
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class StorageKeys(StrEnum):
+    """String enumeration for special storage dictionary keys"""
+
+    PROCESS_NAME = "process_name"
+    TIMESTAMP = "timestamp"
+    STATUS = "status"
+    STATUS_INT = "status_int"
+
+
+def _parse_timestamp(ts: str | datetime | None) -> datetime | None:
+    """Convert timestamp string to datetime object.
+
+    Handles ISO 8601 format with or without timezone.
+    Returns None if input is None.
+    """
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts
+    # Parse ISO 8601 string - fromisoformat handles timezone info
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        logger.warning(f"Could not parse timestamp: {ts}")
+        return None
 
 
 @dataclass
@@ -75,25 +116,49 @@ class WALDuckDBStorage:
     def _init_duckdb(self):
         """Initialize DuckDB connection and schema"""
         self.conn = duckdb.connect(self.db_path)
+
+        # Check if old schema exists and drop it
+        try:
+            self.conn.execute("DROP TABLE IF EXISTS storage")
+        except Exception:
+            pass
+
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS storage (
-                key VARCHAR PRIMARY KEY,
+                key VARCHAR NOT NULL,
+                process_name VARCHAR NOT NULL DEFAULT '',
                 data JSON,
+                timestamp TIMESTAMP,
+                status VARCHAR,
+                status_int INTEGER,
                 updated_at TIMESTAMP,
-                version INTEGER DEFAULT 1
+                version INTEGER DEFAULT 1,
+                PRIMARY KEY (key, process_name)
             )
         """)
 
-        # Load existing data into cache
-        result = self.conn.execute("SELECT key, data FROM storage").fetchall()
-        for key, data in result:
+        # Load existing data into nested cache structure
+        result = self.conn.execute(
+            "SELECT key, process_name, data FROM storage"
+        ).fetchall()
+        for key, process_name, data in result:
             # Deserialize JSON string back to dict
             if isinstance(data, str):
-                self.cache[key] = json.loads(data)
+                data_dict = json.loads(data)
             else:
-                self.cache[key] = data
+                data_dict = data
 
-        logger.info(f"Loaded {len(self.cache)} existing records from DuckDB")
+            # Initialize nested structure
+            if key not in self.cache:
+                self.cache[key] = {}
+            self.cache[key][process_name] = data_dict
+
+        # Count total records across all keys and processes
+        total_records = sum(len(procs) for procs in self.cache.values())
+        logger.info(
+            f"Loaded {total_records} records from DuckDB "
+            f"({len(self.cache)} keys)"
+        )
 
     def _get_wal_files(self):
         """Get all WAL files sorted by sequence number"""
@@ -121,9 +186,21 @@ class WALDuckDBStorage:
                         if line.strip():
                             record = json.loads(line)
                             records.append(record)
-                            # Update in-memory cache
-                            self.cache[record["key"]] = record["data"]
-                            self.pending_writes[record["key"]] = record["data"]
+
+                            # Extract key, process_name, and data
+                            key = record["key"]
+                            process_name = record.get("process_name", "")
+                            data = record["data"]
+
+                            # Update nested in-memory cache
+                            if key not in self.cache:
+                                self.cache[key] = {}
+                            self.cache[key][process_name] = data
+
+                            # Update nested pending_writes
+                            if key not in self.pending_writes:
+                                self.pending_writes[key] = {}
+                            self.pending_writes[key][process_name] = data
 
                 if records:
                     logger.info(
@@ -170,20 +247,48 @@ class WALDuckDBStorage:
 
         logger.info(f"Rotated to new WAL file: {wal_path.name}")
 
-    def store(self, key: str, data: Dict[str, Any]):
-        """Store data with async write to WAL"""
+    def store(
+        self,
+        key: str,
+        data: Dict[str, Any],
+        process_name: str | None = None,
+        timestamp: str | datetime | None = None,
+    ):
+        """Store data with async write to WAL.
+
+        Args:
+            key: Unique identifier for the data
+            data: Dictionary to store (keeps all fields)
+            process_name: Process identifier (extracted from data if None)
+            timestamp: Timestamp (extracted from data if None)
+        """
         with self.write_lock:
-            # Update in-memory cache immediately
-            self.cache[key] = data
-            self.pending_writes[key] = data
+            # Extract process_name: parameter > data field > ""
+            if process_name is None:
+                process_name = data.get(StorageKeys.PROCESS_NAME, "")
+
+            # Extract timestamp: parameter > data field > None
+            if timestamp is None:
+                timestamp = data.get(StorageKeys.TIMESTAMP)
+
+            # Update nested in-memory cache immediately
+            if key not in self.cache:
+                self.cache[key] = {}
+            self.cache[key][process_name] = data
+
+            # Update nested pending_writes
+            if key not in self.pending_writes:
+                self.pending_writes[key] = {}
+            self.pending_writes[key][process_name] = data
 
             # Initialize WAL if needed
             if self.current_wal_file is None:
                 self._rotate_wal()
 
-            # Write to WAL
+            # Write to WAL (includes process_name in record)
             record = {
                 "key": key,
+                "process_name": process_name,
                 "data": data,
                 "timestamp": datetime.now().isoformat(),
             }
@@ -217,10 +322,35 @@ class WALDuckDBStorage:
                     target=self._flush_to_duckdb, daemon=True
                 ).start()
 
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
-        """Get data from cache"""
+    def get_key(self, key: str) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Get all process data for a given key.
+
+        Args:
+            key: The key to look up
+
+        Returns:
+            Dictionary mapping process_name to data dict, or None if
+            key doesn't exist
+        """
         with self.write_lock:
             return self.cache.get(key)
+
+    def get_key_process(
+        self, key: str, process_name: str | None = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get data for specific key and process_name combination.
+
+        Args:
+            key: The key to look up
+            process_name: The process name (or None)
+
+        Returns:
+            Data dictionary if found, None otherwise
+        """
+        with self.write_lock:
+            if key not in self.cache:
+                return None
+            return self.cache[key].get(process_name)
 
     def _flush_to_duckdb(self):
         """Flush pending writes to DuckDB and clean up old WAL files"""
@@ -228,23 +358,44 @@ class WALDuckDBStorage:
         with self.write_lock:
             if not self.pending_writes:
                 return
-            writes_to_flush = dict(self.pending_writes)
+            # Deep copy nested structure
+            writes_to_flush = {}
+            for key, process_dict in self.pending_writes.items():
+                writes_to_flush[key] = dict(process_dict)
             self.pending_writes.clear()
 
         with self.flush_lock:
             try:
-                # Prepare batch data
+                # Prepare batch data with special field extraction
                 batch_data = []
-                for key, data in writes_to_flush.items():
-                    batch_data.append(
-                        (
-                            key,
-                            json.dumps(data)
-                            if not isinstance(data, str)
-                            else data,
-                            datetime.now(),
+                for key, process_dict in writes_to_flush.items():
+                    for process_name, data in process_dict.items():
+                        # Ensure process_name is not None
+                        if process_name is None:
+                            process_name = ""
+
+                        # Extract special fields from data
+                        timestamp = _parse_timestamp(
+                            data.get(StorageKeys.TIMESTAMP)
                         )
-                    )
+                        status = data.get(StorageKeys.STATUS)
+                        status_int = data.get(StorageKeys.STATUS_INT)
+
+                        batch_data.append(
+                            (
+                                key,
+                                process_name,
+                                json.dumps(data)
+                                if not isinstance(data, str)
+                                else data,
+                                timestamp,
+                                status,
+                                status_int,
+                                datetime.now(),
+                                key,
+                                process_name,
+                            )
+                        )
 
                 # Batch insert/update to DuckDB
                 self.conn.execute("BEGIN TRANSACTION")
@@ -252,11 +403,18 @@ class WALDuckDBStorage:
                 # Use INSERT OR REPLACE for upsert behavior
                 self.conn.executemany(
                     """
-                    INSERT OR REPLACE INTO storage (key, data, updated_at, version)
-                    VALUES (?, ?, ?,
-                        COALESCE((SELECT version + 1 FROM storage WHERE key = ?), 1))
+                    INSERT OR REPLACE INTO storage
+                    (key, process_name, data, timestamp, status,
+                     status_int, updated_at, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?,
+                        COALESCE(
+                            (SELECT version + 1 FROM storage
+                             WHERE key = ? AND process_name IS NOT DISTINCT FROM ?),
+                            1
+                        )
+                    )
                 """,  # noqa: E501
-                    [(k, d, t, k) for k, d, t in batch_data],
+                    batch_data,
                 )
 
                 self.conn.execute("COMMIT")
@@ -271,7 +429,10 @@ class WALDuckDBStorage:
                 self.conn.execute("ROLLBACK")
                 # Restore failed writes back to pending_writes
                 with self.write_lock:
-                    self.pending_writes.update(writes_to_flush)
+                    for key, process_dict in writes_to_flush.items():
+                        if key not in self.pending_writes:
+                            self.pending_writes[key] = {}
+                        self.pending_writes[key].update(process_dict)
 
     def _cleanup_old_wals(self):
         """Remove WAL files that have been successfully persisted"""
@@ -366,20 +527,27 @@ if __name__ == "__main__":
     # Initialize storage
     storage = WALDuckDBStorage("data.duckdb", config)
 
-    # Simulate async updates
+    # Simulate async updates with multi-process tracking
     def generate_update():
-        key = "".join(random.choices(string.ascii_letters, k=10))
+        task_id = random.choice(["task_1", "task_2", "task_3"])
+        worker_id = random.choice(["worker1", "worker2", "worker3", None])
         data = {
             "value": random.randint(1, 1000),
-            "timestamp": datetime.now().isoformat(),
+            StorageKeys.TIMESTAMP: datetime.now().isoformat(),
+            StorageKeys.STATUS: random.choice(
+                ["running", "completed", "failed"]
+            ),
+            StorageKeys.STATUS_INT: random.randint(0, 2),
             "metadata": {"source": "simulator"},
         }
-        return key, data
+        if worker_id:
+            data[StorageKeys.PROCESS_NAME] = worker_id
+        return task_id, data, worker_id
 
     # Test writes
     print("Writing test data...")
     for i in range(250):
-        key, data = generate_update()
+        key, data, worker_id = generate_update()
         storage.store(key, data)
 
         if i % 50 == 0:
@@ -393,6 +561,19 @@ if __name__ == "__main__":
     final_stats = storage.get_stats()
     print(f"Final stats: {final_stats}")
 
+    # Test retrieval
+    print("\nTesting multi-process retrieval:")
+    all_task1 = storage.get_key("task_1")
+    if all_task1:
+        print(f"task_1 has {len(all_task1)} processes:")
+        for proc_name, data in all_task1.items():
+            print(f"  {proc_name}: status={data.get('status')}")
+
+    # Test specific process retrieval
+    worker1_task1 = storage.get_key_process("task_1", "worker1")
+    if worker1_task1:
+        print(f"\ntask_1/worker1 data: {worker1_task1}")
+
     # Clean shutdown
     storage.close()
 
@@ -404,10 +585,16 @@ if __name__ == "__main__":
     print(f"After recovery: {recovery_stats}")
 
     # Verify data
-    sample_key = list(storage2.cache.keys())[0] if storage2.cache else None
-    if sample_key:
-        print(
-            f"Sample recovered data: {sample_key} = {storage2.get(sample_key)}"
-        )
+    if storage2.cache:
+        sample_key = list(storage2.cache.keys())[0]
+        all_processes = storage2.get_key(sample_key)
+        print(f"\nSample recovered key: {sample_key}")
+        if all_processes:
+            print(f"  Processes: {list(all_processes.keys())}")
+            sample_proc = list(all_processes.keys())[0]
+            print(
+                f"  Sample data for {sample_proc}: "
+                f"{storage2.get_key_process(sample_key, sample_proc)}"
+            )
 
     storage2.close()
