@@ -11,18 +11,25 @@ with DuckDB for fast asynchronous writes and reliable storage.
    * [Dependencies](#dependencies)
 - [Usage](#usage)
    * [Basic Example](#basic-example)
+   * [FastAPI Integration Example](#fastapi-integration-example)
    * [Custom Configuration](#custom-configuration)
 - [Configuration Options](#configuration-options)
+- [Multi-Process Tracking](#multi-process-tracking)
+   * [Storage Model](#storage-model)
+   * [Database Schema](#database-schema)
+   * [Usage Pattern](#usage-pattern)
 - [Architecture](#architecture)
    * [Write Path](#write-path)
    * [Read Path](#read-path)
    * [Recovery Process](#recovery-process)
    * [Crash Safety](#crash-safety)
 - [API Reference](#api-reference)
+   * [StorageKeys (StrEnum)](#storagekeys-strenum)
    * [WALDuckDBStorage](#walduckdbstorage)
       + [`__init__(db_path: str, config: Optional[WALConfig] = None)`](#__init__db_path-str-config-optionalwalconfig-none)
-      + [`store(key: str, data: Dict[str, Any])`](#storekey-str-data-dictstr-any)
-      + [`get(key: str) -> Optional[Dict[str, Any]]`](#getkey-str-optionaldictstr-any)
+      + [`store(key, data, process_name, timestamp)`](#storekey-str-data-dictstr-any-process_name-str--none--none-timestamp-str--datetime--none--none)
+      + [`get_key(key: str)`](#get_keykey-str-optionaldictstr-dictstr-any)
+      + [`get_key_process(key, process_name)`](#get_key_processkey-str-process_name-str--none--none-optionaldictstr-any)
       + [`force_flush()`](#force_flush)
       + [`get_stats() -> Dict[str, Any]`](#get_stats-dictstr-any)
       + [`close()`](#close)
@@ -39,18 +46,23 @@ with DuckDB for fast asynchronous writes and reliable storage.
 
 ## Overview
 
-`fast_persist` provides a hybrid storage system that offers:
+`fast_persist` provides a hybrid storage system designed for FastAPI servers
+and high-performance applications:
 
 - **Fast async writes** via Write-Ahead Logs (WAL)
 - **Reliable persistence** using DuckDB
 - **Automatic crash recovery** from WAL files
 - **In-memory caching** for quick reads
 - **Background batch processing** to optimize database writes
+- **FastAPI integration**: Designed to work seamlessly with dictionary
+  payloads from FastAPI endpoints
 
 ## Features
 
 - **WAL-based writing**: All writes go to append-only WAL files first,
   ensuring minimal write latency
+- **Multi-process tracking**: Track data per process with automatic
+  organization by key and process_name
 - **Automatic batching**: Pending writes are batched and flushed to DuckDB
   periodically or when thresholds are reached
 - **Crash recovery**: Automatically recovers pending writes from WAL files
@@ -58,13 +70,16 @@ with DuckDB for fast asynchronous writes and reliable storage.
 - **Thread-safe**: Safe for concurrent access with proper locking
 - **Configurable**: Tunable parameters for WAL rotation, batch sizes, and
   flush intervals
-- **In-memory cache**: Fast reads from memory cache, synchronized with
-  persistent storage
+- **In-memory cache**: Fast reads from nested memory cache (key →
+  process_name → data), synchronized with persistent storage
+- **Special field extraction**: Automatically extracts and indexes
+  process_name, timestamp, status, and status_int for efficient querying
 
 ## Installation
 
 ### Dependencies
 
+**Required:**
 ```bash
 pip install duckdb
 ```
@@ -75,25 +90,96 @@ Or with conda:
 conda install -c conda-forge duckdb
 ```
 
+**For Python < 3.11 (StrEnum support):**
+```bash
+pip install backports.strenum
+```
+
+Or with conda:
+
+```bash
+conda install -c conda-forge backports.strenum
+```
+
 ## Usage
 
 ### Basic Example
 
 ```python
-from fast_persist_claude import WALDuckDBStorage, WALConfig
+from fast_persist_claude import WALDuckDBStorage, WALConfig, StorageKeys
 
 # Initialize with default configuration
 storage = WALDuckDBStorage("data.duckdb")
 
-# Store data
-storage.store("user_123", {"name": "Alice", "score": 100})
+# Store data using dictionary keys (typical FastAPI usage)
+# StorageKeys enum provides constants for special fields
+data = {
+    "name": "data_processing",
+    "progress": 75,
+    StorageKeys.PROCESS_NAME: "worker1",  # or "process_name"
+    StorageKeys.STATUS: "running",         # or "status"
+    StorageKeys.TIMESTAMP: "2025-01-15T10:30:00Z"  # Auto-converted to datetime
+}
+storage.store("task_status", data)
 
-# Retrieve data
-data = storage.get("user_123")
-print(data)  # {"name": "Alice", "score": 100}
+# Or use explicit parameters
+storage.store(
+    "task_status",
+    {"name": "data_validation", "progress": 50},
+    process_name="worker2",
+    timestamp="2025-01-15T10:35:00"  # Timezone optional, auto-converted
+)
+
+# Get all process data for a key
+all_processes = storage.get_key("task_status")
+# Returns: {"worker1": {...}, "worker2": {...}}
+
+# Get specific process data
+worker1_data = storage.get_key_process("task_status", "worker1")
+# Returns: {"name": "data_processing", "progress": 75, ...}
 
 # Clean shutdown (flushes all pending writes)
 storage.close()
+```
+
+### FastAPI Integration Example
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+from fast_persist_claude import WALDuckDBStorage, StorageKeys
+from datetime import datetime
+
+app = FastAPI()
+storage = WALDuckDBStorage("api_data.duckdb")
+
+class TaskUpdate(BaseModel):
+    name: str
+    progress: int
+    status: str
+    process_name: str | None = None
+    timestamp: str | None = None
+
+@app.post("/task/{task_id}")
+async def update_task(task_id: str, update: TaskUpdate):
+    # Convert Pydantic model to dict - all special fields auto-extracted
+    data = update.model_dump()
+
+    # Timestamp string automatically converted to datetime
+    storage.store(task_id, data)
+
+    return {"status": "stored", "task_id": task_id}
+
+@app.get("/task/{task_id}")
+async def get_task(task_id: str, process_name: str | None = None):
+    if process_name:
+        return storage.get_key_process(task_id, process_name)
+    else:
+        return storage.get_key(task_id)
+
+@app.on_event("shutdown")
+async def shutdown():
+    storage.close()
 ```
 
 ### Custom Configuration
@@ -120,21 +206,71 @@ storage = WALDuckDBStorage("data.duckdb", config)
 | `batch_size` | `1000` | Records before batch flush |
 | `flush_interval_seconds` | `30` | Force flush interval |
 
+## Multi-Process Tracking
+
+`fast_persist` supports tracking data from multiple processes under the
+same key, making it ideal for distributed systems and parallel processing:
+
+### Storage Model
+
+Data is organized hierarchically:
+- **Primary level**: Key (e.g., "task_status", "metrics")
+- **Secondary level**: Process name (e.g., "worker1", "worker2", None)
+- **Data level**: Your application data
+
+### Database Schema
+
+The DuckDB table uses a composite primary key `(key, process_name)` with
+these columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | VARCHAR | Primary identifier (part of composite key) |
+| `process_name` | VARCHAR | Process identifier (part of composite key, nullable) |
+| `data` | JSON | Full data payload including all fields |
+| `timestamp` | TIMESTAMP | Extracted from data, indexed (nullable) |
+| `status` | VARCHAR | Extracted from data (nullable) |
+| `status_int` | INTEGER | Extracted from data (nullable) |
+| `updated_at` | TIMESTAMP | Auto-updated on each write |
+| `version` | INTEGER | Increments per (key, process_name) pair |
+
+### Usage Pattern
+
+```python
+# Different processes can store under same key
+storage.store("job_status", {...}, process_name="worker1")
+storage.store("job_status", {...}, process_name="worker2")
+
+# Retrieve all process data at once
+all_workers = storage.get_key("job_status")
+for process_name, data in all_workers.items():
+    print(f"{process_name}: {data['status']}")
+
+# Or get specific process
+worker1_status = storage.get_key_process("job_status", "worker1")
+```
+
 ## Architecture
 
 ### Write Path
 
-1. Data is written to in-memory cache immediately
-2. Entry is appended to current WAL file
-3. WAL is rotated when size/count/age thresholds are met
-4. Background thread periodically flushes batched writes to DuckDB
-5. Processed WAL files are deleted after successful flush
+1. Data is written to nested in-memory cache immediately:
+   `cache[key][process_name] = data`
+2. Special fields (process_name, timestamp, status, status_int) are
+   extracted from data
+3. Entry is appended to current WAL file (contains full data)
+4. WAL is rotated when size/count/age thresholds are met
+5. Background thread periodically flushes batched writes to DuckDB with
+   special fields in separate columns
+6. Processed WAL files are deleted after successful flush
 
 ### Read Path
 
-1. All reads served from in-memory cache
-2. Cache is synchronized with DuckDB on startup
-3. Cache updated immediately on writes
+1. All reads served from nested in-memory cache:
+   `cache[key][process_name]`
+2. Cache is synchronized with DuckDB on startup, reconstructing nested
+   structure
+3. Cache updated immediately on writes with proper nesting
 
 ### Recovery Process
 
@@ -201,6 +337,41 @@ and strong crash consistency under normal operating conditions.
 
 ## API Reference
 
+### StorageKeys (StrEnum)
+
+String enumeration providing constants for special dictionary keys used
+by the storage system. Use these for type-safe dictionary access in
+FastAPI and other applications.
+
+**Constants:**
+```python
+class StorageKeys(StrEnum):
+    PROCESS_NAME = "process_name"  # Process identifier
+    TIMESTAMP = "timestamp"         # Timestamp (auto-converted from string)
+    STATUS = "status"               # Status string
+    STATUS_INT = "status_int"       # Status integer
+```
+
+**Usage:**
+```python
+from fast_persist_claude import StorageKeys
+
+data = {
+    "my_field": "value",
+    StorageKeys.PROCESS_NAME: "worker1",
+    StorageKeys.TIMESTAMP: "2025-01-15T10:30:00Z",
+    StorageKeys.STATUS: "running"
+}
+storage.store("key", data)
+```
+
+**Timestamp Conversion:**
+- Accepts ISO 8601 strings with or without timezone
+- Automatically converted to Python datetime objects
+- Timezones preserved if provided, otherwise assumed UTC
+- Examples: `"2025-01-15T10:30:00Z"`, `"2025-01-15T10:30:00"`,
+  `"2025-01-15T10:30:00-05:00"`
+
 ### WALDuckDBStorage
 
 #### `__init__(db_path: str, config: Optional[WALConfig] = None)`
@@ -211,19 +382,56 @@ Initialize the storage system.
 - `db_path`: Path to DuckDB database file
 - `config`: Optional WALConfig for customization
 
-#### `store(key: str, data: Dict[str, Any])`
+#### `store(key: str, data: Dict[str, Any], process_name: str | None = None, timestamp: str | datetime | None = None)`
 
-Store a key-value pair.
+Store data with optional process and time tracking.
 
 **Parameters:**
-- `key`: Unique identifier
-- `data`: Dictionary to store
+- `key`: Unique identifier for the data
+- `data`: Dictionary to store (keeps all fields including special ones)
+- `process_name`: Optional process identifier. If not provided, extracted
+  from `data["process_name"]` if present, otherwise None
+- `timestamp`: Optional timestamp (string or datetime). If not provided,
+  extracted from `data["timestamp"]` if present
 
-#### `get(key: str) -> Optional[Dict[str, Any]]`
+**Special Fields:**
+The following fields, if present in `data`, are automatically extracted
+and stored in separate indexed columns while remaining in the data dict:
+- `process_name`: Process identifier
+- `timestamp`: Timestamp (converted to datetime if string)
+- `status`: Status string
+- `status_int`: Status integer
 
-Retrieve data by key.
+**Storage:**
+Data is stored with composite key `(key, process_name)` allowing
+multiple processes to track data under the same key.
 
-**Returns:** Dictionary if found, None otherwise
+#### `get_key(key: str) -> Optional[Dict[str, Dict[str, Any]]]`
+
+Retrieve all process data for a given key.
+
+**Parameters:**
+- `key`: The key to look up
+
+**Returns:** Dictionary mapping process_name to data dict, or None if
+key doesn't exist
+```python
+{
+    "worker1": {"name": "...", "progress": 75, ...},
+    "worker2": {"name": "...", "progress": 50, ...},
+    None: {"name": "...", ...}  # If process_name was None
+}
+```
+
+#### `get_key_process(key: str, process_name: str | None = None) -> Optional[Dict[str, Any]]`
+
+Retrieve data for a specific key and process_name combination.
+
+**Parameters:**
+- `key`: The key to look up
+- `process_name`: The process name (or None for unspecified process)
+
+**Returns:** Data dictionary if found, None otherwise
 
 #### `force_flush()`
 
