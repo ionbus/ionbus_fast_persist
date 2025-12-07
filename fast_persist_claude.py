@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import duckdb
 import json
+import os
 import time
 import threading
 from pathlib import Path
@@ -139,6 +140,8 @@ class WALDuckDBStorage:
     def _rotate_wal(self):
         """Rotate to a new WAL file"""
         if self.current_wal_file:
+            self.current_wal_file.flush()
+            os.fsync(self.current_wal_file.fileno())
             self.current_wal_file.close()
 
         self.wal_sequence += 1
@@ -177,6 +180,7 @@ class WALDuckDBStorage:
                 raise RuntimeError("WAL file is not initialized")
             self.current_wal_file.write(wal_entry)
             self.current_wal_file.flush()
+            os.fsync(self.current_wal_file.fileno())
             self.current_wal_size += len(wal_bytes)
             self.current_wal_count += 1
 
@@ -322,6 +326,8 @@ class WALDuckDBStorage:
 
         # Close WAL file
         if self.current_wal_file:
+            self.current_wal_file.flush()
+            os.fsync(self.current_wal_file.fileno())
             self.current_wal_file.close()
 
         # Close DuckDB connection

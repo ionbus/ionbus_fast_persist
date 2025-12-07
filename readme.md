@@ -162,12 +162,14 @@ mechanism:
 **Application WAL Layer Protection:**
 - All writes are immediately appended to application-level WAL files
   before being batched to DuckDB
+- Each WAL write is followed by `fsync()` to ensure data reaches stable
+  storage (disk), not just OS buffers
 - If the process crashes during a DuckDB write operation, the WAL files
   preserve any data that wasn't yet committed
 - On restart, the recovery process replays all WAL entries and re-flushes
   them to DuckDB
 - This ensures zero data loss even if crashes occur between cache updates
-  and DuckDB commits
+  and DuckDB commits, including power loss or OS crashes
 
 **Combined Guarantee:**
 
