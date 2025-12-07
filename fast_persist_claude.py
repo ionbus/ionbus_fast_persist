@@ -155,11 +155,18 @@ class WALDuckDBStorage:
         self.current_wal_start_time = time.time()
 
         # Fsync directory to ensure new file entry is durable
-        dir_fd = os.open(self.config.base_dir, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+        # (Windows doesn't support directory fsync, skip on that platform)
+        if os.name != "nt":
+            try:
+                dir_fd = os.open(self.config.base_dir, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except (OSError, PermissionError) as e:
+                logger.warning(
+                    f"Could not fsync directory {self.config.base_dir}: {e}"
+                )
 
         logger.info(f"Rotated to new WAL file: {wal_path.name}")
 

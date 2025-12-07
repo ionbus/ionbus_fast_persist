@@ -162,14 +162,18 @@ protection mechanism:
 **Application WAL Layer Protection:**
 - All writes are immediately appended to application-level WAL files
   before being batched to DuckDB
-- Each WAL write is followed by `fsync()` on both the file and directory
-  to ensure data and directory entries reach stable storage
+- Each WAL write is followed by `fsync()` on the file to ensure data
+  reaches stable storage
+- On Unix-like systems (Linux, macOS), directory fsync is also performed
+  after WAL file creation to ensure directory entry durability
+- On Windows, directory fsync is not available; directory entry
+  durability relies on filesystem behavior
 - If the process crashes during a DuckDB write operation, the WAL files
   preserve any data that wasn't yet committed
 - On restart, the recovery process replays all WAL entries and re-flushes
   them to DuckDB
-- This protects against data loss from process crashes and, under normal
-  filesystem behavior, power loss or OS crashes
+- This protects against data loss from process crashes; power loss
+  protection varies by platform and filesystem configuration
 
 **Combined Design:**
 
@@ -182,6 +186,10 @@ In typical crash scenarios (process termination, system crashes):
 **Important Notes:**
 - Durability depends on the filesystem and storage hardware honoring
   `fsync()` guarantees
+- Per-write `fsync()` has significant performance cost (~1-10ms per
+  write depending on storage); this is the trade-off for durability
+- On Windows, directory entry durability is not explicitly ensured due
+  to platform limitations
 - Catastrophic failures (disk corruption, filesystem bugs) may still
   cause data loss
 - For maximum durability, ensure the underlying storage is configured
