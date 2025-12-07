@@ -1,0 +1,29 @@
+# UpdateManagement Configuration
+
+storage:
+  # Base directory for all data storage
+  base_data_dir: "./data"
+
+  # Directory for Parquet output (Hive-partitioned by trade_date)
+  parquet_output_dir: "./parquet_data"
+
+wal:
+  # Rotate WAL file after this many seconds
+  rotation_seconds: 60
+
+  # Rotate WAL file after this many messages
+  rotation_messages: 1000
+
+  # Zero-padding for file numbers (default: 6)
+  file_number_padding: 6
+
+  # Zero-padding for sequence numbers (default: 10)
+  sequence_padding: 10
+
+duckdb:
+  # Write to DuckDB every N seconds
+  write_interval_seconds: 300
+
+trade_date_rules:
+  # If current hour >= this value, use tomorrow's date as trade date
+  tomorrow_hour_threshold: 18
