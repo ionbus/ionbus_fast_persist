@@ -269,9 +269,13 @@ The storage system is thread-safe with the following guarantees:
 
 ## Performance Characteristics
 
-- **Write latency**: ~1-5ms (WAL append only)
+- **Write latency**: ~1-10ms per write (includes fsync to disk)
+  - Dominated by fsync cost, varies significantly by storage hardware
+  - SSDs: typically 1-3ms
+  - HDDs: typically 5-10ms
+  - Note: This is the durability trade-off for crash safety
 - **Read latency**: ~0.1ms (in-memory cache)
-- **Batch flush**: Processes 1000s of records per second
+- **Batch flush**: Processes 1000s of records per second to DuckDB
 - **Recovery time**: Depends on WAL file count and size
 
 ## Use Cases
