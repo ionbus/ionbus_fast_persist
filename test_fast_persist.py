@@ -15,6 +15,7 @@ if __name__ == "__main__":
         max_wal_size=1024 * 1024,  # 1MB per WAL
         batch_size=100,  # Flush every 100 records
         flush_interval_seconds=10,  # Or every 10 seconds
+        parquet_path="./test_output",  # Optional: path for parquet export
     )
 
     # Initialize storage with today's date
@@ -66,6 +67,16 @@ if __name__ == "__main__":
     worker1_task1 = storage.get_key_process("task_1", "worker1")
     if worker1_task1:
         print(f"\ntask_1/worker1 data: {worker1_task1}")
+
+    # Test parquet export (uses config.parquet_path)
+    print("\nTesting Parquet export...")
+    try:
+        parquet_output = storage.export_to_parquet()
+        print(f"Exported to parquet: {parquet_output}")
+    except ImportError as e:
+        print(f"Parquet export skipped: {e}")
+    except Exception as e:
+        print(f"Parquet export error: {e}")
 
     # Clean shutdown
     storage.close()

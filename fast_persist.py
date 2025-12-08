@@ -5,14 +5,21 @@ from __future__ import annotations
 import datetime as dt
 import duckdb
 import json
+import logging
 import os
 import sys
-import time
 import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass
-import logging
+
+try:
+    import pandas as pd  # type: ignore
+
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
 
 # Handle StrEnum for different Python versions
 if sys.version_info >= (3, 11):
@@ -60,6 +67,7 @@ class WALConfig:
     max_wal_age_seconds: int = 300  # 5 minutes
     batch_size: int = 1000  # Records before triggering batch write
     flush_interval_seconds: int = 30  # Force flush every 30 seconds
+    parquet_path: str | None = None  # Path for Hive-partitioned parquet
 
 
 class WALDuckDBStorage:
@@ -500,6 +508,72 @@ class WALDuckDBStorage:
                 "wal_files_count": len(wal_files),
                 "wal_sequence": self.wal_sequence,
             }
+
+    def export_to_parquet(
+        self, parquet_path: str | None = None
+    ) -> str | None:
+        """Export all DuckDB data to Hive-partitioned Parquet file.
+
+        Args:
+            parquet_path: Path to save parquet files. If None, uses
+                         config.parquet_path
+
+        Returns:
+            Path where parquet was saved, or None if no path configured
+
+        Raises:
+            ImportError: If pandas is not installed
+            ValueError: If no parquet_path is provided or configured
+        """
+        if not HAS_PANDAS:
+            raise ImportError(
+                "pandas is required for parquet export. "
+                "Install it with: pip install pandas pyarrow"
+            )
+
+        # Determine parquet path
+        export_path = parquet_path or self.config.parquet_path
+        if not export_path:
+            raise ValueError(
+                "No parquet_path provided. Either pass it as argument "
+                "or set it in WALConfig"
+            )
+
+        # Query all data from DuckDB with date column
+        query = """
+            SELECT
+                key,
+                process_name,
+                data,
+                timestamp,
+                status,
+                status_int,
+                updated_at,
+                version,
+                ? as date
+            FROM storage
+        """
+
+        df = self.conn.execute(query, [self.date_str]).df()
+
+        if df.empty:
+            logger.warning("No data to export to parquet")
+            return None
+
+        # Write as Hive-partitioned parquet
+        # Partition by process_name and date (in that order)
+        df.to_parquet(
+            export_path,
+            engine="pyarrow",
+            partition_cols=["process_name", "date"],
+            index=False,
+        )
+
+        logger.info(
+            f"Exported {len(df)} records to Hive-partitioned "
+            f"parquet at {export_path}"
+        )
+        return export_path
 
     def close(self):
         """Clean shutdown"""
