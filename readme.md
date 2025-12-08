@@ -13,6 +13,7 @@ with DuckDB for fast asynchronous writes and reliable storage.
    * [Basic Example](#basic-example)
    * [FastAPI Integration Example](#fastapi-integration-example)
    * [Custom Configuration](#custom-configuration)
+   * [Parquet Export](#parquet-export)
 - [Configuration Options](#configuration-options)
 - [Multi-Process Tracking](#multi-process-tracking)
    * [Storage Model](#storage-model)
@@ -32,6 +33,7 @@ with DuckDB for fast asynchronous writes and reliable storage.
       + [`get_key_process(key, process_name)`](#get_key_processkey-str-process_name-str--none--none-optionaldictstr-any)
       + [`force_flush()`](#force_flush)
       + [`get_stats() -> Dict[str, Any]`](#get_stats-dictstr-any)
+      + [`export_to_parquet(parquet_path)`](#export_to_parquetparquet_path-str--none--none-str--none)
       + [`close()`](#close)
 - [Example: Running the Demo](#example-running-the-demo)
 - [Thread Safety](#thread-safety)
@@ -76,6 +78,8 @@ and high-performance applications:
   process_name → data), synchronized with persistent storage
 - **Special field extraction**: Automatically extracts and indexes
   process_name, timestamp, status, and status_int for efficient querying
+- **Parquet export**: Export all data to Hive-partitioned Parquet files
+  for analytics and data warehousing
 
 ## Installation
 
@@ -83,13 +87,13 @@ and high-performance applications:
 
 **Required:**
 ```bash
-pip install duckdb
+pip install duckdb pandas pyarrow
 ```
 
 Or with conda:
 
 ```bash
-conda install -c conda-forge duckdb
+conda install -c conda-forge duckdb pandas pyarrow
 ```
 
 **For Python < 3.11 (StrEnum support):**
@@ -196,10 +200,59 @@ config = WALConfig(
     max_wal_size=10 * 1024 * 1024,   # 10MB per WAL file
     max_wal_age_seconds=300,          # 5 minutes
     batch_size=1000,                  # Flush after 1000 records
-    flush_interval_seconds=30         # Flush every 30 seconds
+    flush_interval_seconds=30,        # Flush every 30 seconds
+    parquet_path="./data_export"     # Optional: Parquet export path
 )
 
 storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
+```
+
+### Parquet Export
+
+Export all data to Hive-partitioned Parquet files for analytics, data
+warehousing, or integration with tools like Apache Spark, Presto, or AWS
+Athena.
+
+```python
+import datetime as dt
+from fast_persist import WALDuckDBStorage, WALConfig
+
+# Option 1: Configure export path in config
+config = WALConfig(parquet_path="./data_export")
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
+
+# Store some data
+storage.store("metrics", {"cpu": 75, "memory": 60}, process_name="server1")
+storage.store("metrics", {"cpu": 82, "memory": 55}, process_name="server2")
+
+# Export to Parquet (uses config.parquet_path)
+storage.export_to_parquet()
+
+# Option 2: Specify path explicitly (overrides config)
+storage.export_to_parquet("./custom_export")
+```
+
+**Output Structure:** Data is partitioned by `process_name` and `date`:
+```
+./data_export/
+├── process_name=server1/
+│   └── date=2025-01-15/
+│       └── data.parquet
+└── process_name=server2/
+    └── date=2025-01-15/
+        └── data.parquet
+```
+
+**Exported Columns:**
+- `key`: Primary identifier
+- `process_name`: Process identifier (partition column)
+- `date`: Date string (partition column)
+- `data`: Full JSON data payload
+- `timestamp`: Extracted timestamp
+- `status`: Extracted status string
+- `status_int`: Extracted status integer
+- `updated_at`: Last update timestamp
+- `version`: Record version number
 ```
 
 ## Configuration Options
@@ -211,6 +264,7 @@ storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
 | `max_wal_age_seconds` | `300` (5 min) | Max age before WAL rotation |
 | `batch_size` | `1000` | Records before batch flush |
 | `flush_interval_seconds` | `30` | Force flush interval |
+| `parquet_path` | `None` | Path for Hive-partitioned Parquet export |
 
 ## Date-Based Storage Isolation
 
@@ -507,22 +561,65 @@ Get current storage statistics.
 - `wal_files_count`: Total number of WAL files
 - `wal_sequence`: Current WAL sequence number
 
+#### `export_to_parquet(parquet_path: str | None = None) -> str | None`
+
+Export all DuckDB data to Hive-partitioned Parquet files.
+
+**Parameters:**
+- `parquet_path`: Path to save parquet files. If None, uses
+  `config.parquet_path`
+
+**Returns:** Path where parquet was saved, or None if no data to export
+
+**Raises:**
+- `ImportError`: If pandas or pyarrow is not installed
+- `ValueError`: If no parquet_path is provided or configured
+
+**Partition Structure:** Data is partitioned by `process_name` and
+`date` (in that order), creating a Hive-style directory structure:
+```
+parquet_path/
+├── process_name=worker1/
+│   └── date=2025-01-15/
+│       └── *.parquet
+├── process_name=worker2/
+│   └── date=2025-01-15/
+│       └── *.parquet
+└── process_name=/
+    └── date=2025-01-15/
+        └── *.parquet
+```
+
+**Example:**
+```python
+# Using config
+config = WALConfig(parquet_path="./data_export")
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
+storage.export_to_parquet()  # Uses config.parquet_path
+
+# Or specify path explicitly
+storage.export_to_parquet("./custom_export")
+```
+
 #### `close()`
 
-Clean shutdown - stops background threads and flushes all pending data.
+Clean shutdown - stops background threads, flushes all pending data, and
+cleans up all WAL files.
 
 ## Example: Running the Demo
 
 ```bash
-python fast_persist_claude.py
+python test_fast_persist.py
 ```
 
 This runs a demo that:
-1. Writes 250 random records
+1. Writes 250 random records with multi-process tracking
 2. Shows statistics during writing
 3. Forces a flush
-4. Restarts to test recovery
-5. Verifies recovered data
+4. Tests retrieval by key and process
+5. Exports data to Hive-partitioned Parquet files
+6. Restarts to test recovery
+7. Verifies recovered data
 
 ## Thread Safety
 
