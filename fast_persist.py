@@ -7,6 +7,7 @@ import duckdb
 import json
 import logging
 import os
+import pandas as pd
 import sys
 import threading
 import time
@@ -14,12 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    import pandas as pd  # type: ignore
-
-    HAS_PANDAS = True
-except ImportError:
-    HAS_PANDAS = False
 
 # Handle StrEnum for different Python versions
 if sys.version_info >= (3, 11):
@@ -509,9 +504,7 @@ class WALDuckDBStorage:
                 "wal_sequence": self.wal_sequence,
             }
 
-    def export_to_parquet(
-        self, parquet_path: str | None = None
-    ) -> str | None:
+    def export_to_parquet(self, parquet_path: str | None = None) -> str | None:
         """Export all DuckDB data to Hive-partitioned Parquet file.
 
         Args:
@@ -522,15 +515,8 @@ class WALDuckDBStorage:
             Path where parquet was saved, or None if no path configured
 
         Raises:
-            ImportError: If pandas is not installed
             ValueError: If no parquet_path is provided or configured
         """
-        if not HAS_PANDAS:
-            raise ImportError(
-                "pandas is required for parquet export. "
-                "Install it with: pip install pandas pyarrow"
-            )
-
         # Determine parquet path
         export_path = parquet_path or self.config.parquet_path
         if not export_path:
@@ -592,6 +578,16 @@ class WALDuckDBStorage:
             self.current_wal_file.flush()
             os.fsync(self.current_wal_file.fileno())
             self.current_wal_file.close()
+
+        # Clean up all remaining WAL files
+        # (data is now safely persisted in DuckDB)
+        wal_files = self._get_wal_files()
+        for wal_file in wal_files:
+            try:
+                wal_file.unlink()
+                logger.info(f"Deleted WAL file on close: {wal_file.name}")
+            except Exception as e:
+                logger.error(f"Error deleting WAL file {wal_file}: {e}")
 
         # Close DuckDB connection
         self.conn.close()
