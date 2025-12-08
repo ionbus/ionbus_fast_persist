@@ -18,14 +18,7 @@ import logging
 if sys.version_info >= (3, 11):
     from enum import StrEnum
 else:
-    try:
-        from backports.strenum import StrEnum  # type: ignore
-    except ImportError:
-        # Fallback if backports not installed
-        from enum import Enum
-
-        class StrEnum(str, Enum):  # type: ignore
-            pass
+    from backports.strenum import StrEnum  # type: ignore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
