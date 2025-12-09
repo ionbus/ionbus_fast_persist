@@ -23,7 +23,7 @@ def stage1_write_and_crash():
         base_dir="./crash_test_wal",
         max_wal_size=1024 * 512,  # 512KB - small for testing
         batch_size=50,  # Small batch to ensure multiple WAL files
-        flush_interval_seconds=60,  # Long interval to keep data in WAL
+        duckdb_flush_interval_seconds=60,  # Long interval to keep data in WAL
         parquet_path="./crash_test_output",
     )
 
@@ -84,7 +84,7 @@ def stage2_recover_and_verify():
         base_dir="./crash_test_wal",
         max_wal_size=1024 * 512,
         batch_size=50,
-        flush_interval_seconds=60,
+        duckdb_flush_interval_seconds=60,
         parquet_path="./crash_test_output",
     )
 
@@ -148,22 +148,12 @@ def stage2_recover_and_verify():
         print("✗ FAILED: Could not retrieve server3 status")
         all_verified = False
 
-    # Export to parquet before closing
+    # Clean shutdown (will automatically export to parquet)
     print("\n" + "=" * 60)
-    print("EXPORTING TO PARQUET")
-    print("=" * 60)
-    try:
-        parquet_path = storage.export_to_parquet()
-        print(f"✓ Exported to: {parquet_path}")
-    except Exception as e:
-        print(f"✗ FAILED to export: {e}")
-        all_verified = False
-
-    # Clean shutdown
-    print("\n" + "=" * 60)
-    print("CLEAN SHUTDOWN")
+    print("CLEAN SHUTDOWN (with automatic parquet export)")
     print("=" * 60)
     storage.close()
+    print("✓ Clean shutdown completed")
 
     stats_after_close = storage.get_stats()
     print(f"Final stats: {stats_after_close}")

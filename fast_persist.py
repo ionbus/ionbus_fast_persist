@@ -61,7 +61,7 @@ class WALConfig:
     max_wal_size: int = 10 * 1024 * 1024  # 10MB per WAL file
     max_wal_age_seconds: int = 300  # 5 minutes
     batch_size: int = 1000  # Records before triggering batch write
-    flush_interval_seconds: int = 30  # Force flush every 30 seconds
+    duckdb_flush_interval_seconds: int = 30  # Force flush every 30 seconds
     parquet_path: str | None = None  # Path for Hive-partitioned parquet
 
 
@@ -472,7 +472,7 @@ class WALDuckDBStorage:
     def _background_flush(self):
         """Background thread to periodically flush to DuckDB"""
         while not self.stop_event.is_set():
-            time.sleep(self.config.flush_interval_seconds)
+            time.sleep(self.config.duckdb_flush_interval_seconds)
 
             with self.write_lock:
                 if self.pending_writes:
@@ -482,8 +482,8 @@ class WALDuckDBStorage:
 
             self._flush_to_duckdb()
 
-    def force_flush(self):
-        """Force an immediate flush to DuckDB"""
+    def flush_data_to_duckdb(self):
+        """Force an immediate flush of pending data to DuckDB"""
         with self.write_lock:
             if self.current_wal_file:
                 self._rotate_wal()
@@ -571,7 +571,14 @@ class WALDuckDBStorage:
             self.flush_thread.join(timeout=5)
 
         # Final flush
-        self.force_flush()
+        self.flush_data_to_duckdb()
+
+        # Export to parquet if path is configured
+        if self.config.parquet_path:
+            try:
+                self.export_to_parquet()
+            except Exception as e:
+                logger.error(f"Error exporting to parquet on close: {e}")
 
         # Close WAL file
         if self.current_wal_file:

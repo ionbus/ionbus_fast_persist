@@ -31,7 +31,7 @@ with DuckDB for fast asynchronous writes and reliable storage.
       + [`store(key, data, process_name, timestamp)`](#storekey-str-data-dictstr-any-process_name-str--none--none-timestamp-str--datetime--none--none)
       + [`get_key(key: str)`](#get_keykey-str-optionaldictstr-dictstr-any)
       + [`get_key_process(key, process_name)`](#get_key_processkey-str-process_name-str--none--none-optionaldictstr-any)
-      + [`force_flush()`](#force_flush)
+      + [`flush_data_to_duckdb()`](#flush_data_to_duckdb)
       + [`get_stats() -> Dict[str, Any]`](#get_stats-dictstr-any)
       + [`export_to_parquet(parquet_path)`](#export_to_parquetparquet_path-str--none--none-str--none)
       + [`close()`](#close)
@@ -81,7 +81,8 @@ and high-performance applications:
 - **Special field extraction**: Automatically extracts and indexes
   process_name, timestamp, status, and status_int for efficient querying
 - **Parquet export**: Export all data to Hive-partitioned Parquet files
-  for analytics and data warehousing
+  for analytics and data warehousing. Automatically exports on clean
+  shutdown when `parquet_path` is configured
 
 ## Installation
 
@@ -202,7 +203,7 @@ config = WALConfig(
     max_wal_size=10 * 1024 * 1024,   # 10MB per WAL file
     max_wal_age_seconds=300,          # 5 minutes
     batch_size=1000,                  # Flush after 1000 records
-    flush_interval_seconds=30,        # Flush every 30 seconds
+    duckdb_flush_interval_seconds=30,        # Flush every 30 seconds
     parquet_path="./data_export"     # Optional: Parquet export path
 )
 
@@ -219,7 +220,7 @@ Athena.
 import datetime as dt
 from fast_persist import WALDuckDBStorage, WALConfig
 
-# Option 1: Configure export path in config
+# Option 1: Automatic export on close (recommended)
 config = WALConfig(parquet_path="./data_export")
 storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
 
@@ -227,10 +228,13 @@ storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
 storage.store("metrics", {"cpu": 75, "memory": 60}, process_name="server1")
 storage.store("metrics", {"cpu": 82, "memory": 55}, process_name="server2")
 
-# Export to Parquet (uses config.parquet_path)
-storage.export_to_parquet()
+# Data will be automatically exported to parquet when close() is called
+storage.close()
 
-# Option 2: Specify path explicitly (overrides config)
+# Option 2: Manual export at any time
+storage.export_to_parquet()  # Uses config.parquet_path
+
+# Option 3: Specify path explicitly (overrides config)
 storage.export_to_parquet("./custom_export")
 ```
 
@@ -265,7 +269,7 @@ storage.export_to_parquet("./custom_export")
 | `max_wal_size` | `10485760` (10MB) | Max size before WAL rotation |
 | `max_wal_age_seconds` | `300` (5 min) | Max age before WAL rotation |
 | `batch_size` | `1000` | Records before batch flush |
-| `flush_interval_seconds` | `30` | Force flush interval |
+| `duckdb_flush_interval_seconds` | `30` | Force flush interval |
 | `parquet_path` | `None` | Path for Hive-partitioned Parquet export |
 
 ## Date-Based Storage Isolation
@@ -547,9 +551,10 @@ Retrieve data for a specific key and process_name combination.
 
 **Returns:** Data dictionary if found, None otherwise
 
-#### `force_flush()`
+#### `flush_data_to_duckdb()`
 
-Force immediate flush of all pending writes to DuckDB.
+Force immediate flush of all pending data to DuckDB. This method rotates
+the current WAL file and flushes all pending writes to the database.
 
 #### `get_stats() -> dict[str, Any]`
 
@@ -605,8 +610,13 @@ storage.export_to_parquet("./custom_export")
 
 #### `close()`
 
-Clean shutdown - stops background threads, flushes all pending data, and
+Clean shutdown - stops background threads, flushes all pending data,
+automatically exports to Parquet (if `parquet_path` is configured), and
 cleans up all WAL files.
+
+**Automatic Parquet Export:** If `config.parquet_path` is set, `close()` will
+automatically call `export_to_parquet()` before shutdown. This ensures your
+data is always exported when the storage system shuts down cleanly.
 
 ## Testing and Examples
 

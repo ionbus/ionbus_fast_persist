@@ -22,7 +22,7 @@ wal:
 
 duckdb:
   # Write to DuckDB every N seconds
-  write_interval_seconds: 300
+  duckdb_flush_interval_seconds: 300
 
 trade_date_rules:
   # If current hour >= this value, use tomorrow's date as trade date
