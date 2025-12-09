@@ -4,7 +4,8 @@
       "Bash(/c/ProgramData/anaconda3/Scripts/conda.exe run:*)",
       "Bash(C:/Anaconda/Scripts/conda.exe run --no-capture-output -n py_39_pd15_v2 python --version)",
       "Bash(C:/Anaconda/Scripts/conda.exe run --no-capture-output -n py_39_pd15_v2 python test_fast_persist.py)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(C:/Anaconda/Scripts/conda.exe run:*)"
     ],
     "deny": [],
     "ask": []
