@@ -25,3 +25,4 @@ metadata_conda_debug.yaml
 *.png 
 data.duckdb 
 wal_storage 
+2025-* 

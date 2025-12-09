@@ -35,7 +35,9 @@ with DuckDB for fast asynchronous writes and reliable storage.
       + [`get_stats() -> Dict[str, Any]`](#get_stats-dictstr-any)
       + [`export_to_parquet(parquet_path)`](#export_to_parquetparquet_path-str--none--none-str--none)
       + [`close()`](#close)
-- [Example: Running the Demo](#example-running-the-demo)
+- [Testing and Examples](#testing-and-examples)
+   * [Basic Functional Test](#basic-functional-test)
+   * [Crash Recovery Test](#crash-recovery-test)
 - [Thread Safety](#thread-safety)
 - [Performance Characteristics](#performance-characteristics)
 - [Use Cases](#use-cases)
@@ -606,13 +608,17 @@ storage.export_to_parquet("./custom_export")
 Clean shutdown - stops background threads, flushes all pending data, and
 cleans up all WAL files.
 
-## Example: Running the Demo
+## Testing and Examples
+
+### Basic Functional Test
+
+Run the basic test to see all features in action:
 
 ```bash
 python test_fast_persist.py
 ```
 
-This runs a demo that:
+This test demonstrates:
 1. Writes 250 random records with multi-process tracking
 2. Shows statistics during writing
 3. Forces a flush
@@ -620,6 +626,40 @@ This runs a demo that:
 5. Exports data to Hive-partitioned Parquet files
 6. Restarts to test recovery
 7. Verifies recovered data
+
+### Crash Recovery Test
+
+Run the two-stage crash recovery test to verify WAL-based durability:
+
+**Stage 1: Write data and simulate crash**
+```bash
+python test_crash_recovery.py 1
+```
+
+This stage:
+- Writes 9 records across 3 keys and 3 processes
+- Leaves WAL files with unflushed data
+- Kills process without clean shutdown (simulates crash)
+
+**Stage 2: Recover and verify**
+```bash
+python test_crash_recovery.py 2
+```
+
+This stage:
+- Automatically recovers all data from WAL files
+- Verifies data integrity (all 9 records)
+- Tests specific queries
+- Exports to Parquet with Hive partitioning
+- Performs clean shutdown and cleanup
+- Validates Parquet structure and contents
+
+**Expected Results:**
+- ✓ All data recovered from WAL files
+- ✓ In-memory cache rebuilt correctly
+- ✓ Data persisted to DuckDB
+- ✓ Parquet export with proper Hive structure
+- ✓ All WAL files cleaned up after shutdown
 
 ## Thread Safety
 
