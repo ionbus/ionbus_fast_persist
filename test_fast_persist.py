@@ -14,7 +14,7 @@ if __name__ == "__main__":
         base_dir="./wal_storage",
         max_wal_size=1024 * 1024,  # 1MB per WAL
         batch_size=100,  # Flush every 100 records
-        flush_interval_seconds=10,  # Or every 10 seconds
+        duckdb_flush_interval_seconds=10,  # Or every 10 seconds
         parquet_path="./test_output",  # Optional: path for parquet export
     )
 
@@ -49,7 +49,7 @@ if __name__ == "__main__":
             print(f"After {i} writes: {stats}")
 
     # Force final flush
-    storage.force_flush()
+    storage.flush_data_to_duckdb()
 
     # Check final stats
     final_stats = storage.get_stats()
@@ -68,18 +68,10 @@ if __name__ == "__main__":
     if worker1_task1:
         print(f"\ntask_1/worker1 data: {worker1_task1}")
 
-    # Test parquet export (uses config.parquet_path)
-    print("\nTesting Parquet export...")
-    try:
-        parquet_output = storage.export_to_parquet()
-        print(f"Exported to parquet: {parquet_output}")
-    except ImportError as e:
-        print(f"Parquet export skipped: {e}")
-    except Exception as e:
-        print(f"Parquet export error: {e}")
-
-    # Clean shutdown
+    # Clean shutdown (will automatically export to parquet)
+    print("\nClosing storage (automatic parquet export)...")
     storage.close()
+    print("✓ Storage closed and data exported")
 
     print("\nRestarting to test recovery...")
 
