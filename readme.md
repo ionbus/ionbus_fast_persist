@@ -79,7 +79,8 @@ and high-performance applications:
 - **In-memory cache**: Fast reads from nested memory cache (key →
   process_name → data), synchronized with persistent storage
 - **Special field extraction**: Automatically extracts and indexes
-  process_name, timestamp, status, and status_int for efficient querying
+  process_name, timestamp, status, status_int, and username for efficient
+  querying
 - **Parquet export**: Export all data to Hive-partitioned Parquet files
   for analytics and data warehousing. Automatically exports on clean
   shutdown when `parquet_path` is configured
@@ -116,7 +117,7 @@ conda install -c conda-forge backports.strenum
 
 ```python
 import datetime as dt
-from fast_persist_claude import WALDuckDBStorage, WALConfig, StorageKeys
+from fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 # Initialize with default configuration (date is required)
 storage = WALDuckDBStorage(dt.date.today(), "data.duckdb")
@@ -128,6 +129,7 @@ data = {
     "progress": 75,
     StorageKeys.PROCESS_NAME: "worker1",  # or "process_name"
     StorageKeys.STATUS: "running",         # or "status"
+    StorageKeys.USERNAME: "alice",         # or "username"
     StorageKeys.TIMESTAMP: "2025-01-15T10:30:00Z"  # Auto-converted to datetime
 }
 storage.store("task_status", data)
@@ -137,6 +139,7 @@ storage.store(
     "task_status",
     {"name": "data_validation", "progress": 50},
     process_name="worker2",
+    username="bob",
     timestamp="2025-01-15T10:35:00"  # Timezone optional, auto-converted
 )
 
@@ -158,7 +161,7 @@ storage.close()
 import datetime as dt
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fast_persist_claude import WALDuckDBStorage, StorageKeys
+from fast_persist import WALDuckDBStorage, StorageKeys
 
 app = FastAPI()
 # Initialize with current date - each date has separate storage
@@ -169,6 +172,7 @@ class TaskUpdate(BaseModel):
     progress: int
     status: str
     process_name: str | None = None
+    username: str | None = None
     timestamp: str | None = None
 
 @app.post("/task/{task_id}")
@@ -339,6 +343,7 @@ these columns:
 | `timestamp` | TIMESTAMP | Extracted from data, indexed (nullable) |
 | `status` | VARCHAR | Extracted from data (nullable) |
 | `status_int` | INTEGER | Extracted from data (nullable) |
+| `username` | VARCHAR | Extracted from data (nullable) |
 | `updated_at` | TIMESTAMP | Auto-updated on each write |
 | `version` | INTEGER | Increments per (key, process_name) pair |
 
@@ -364,8 +369,8 @@ worker1_status = storage.get_key_process("job_status", "worker1")
 
 1. Data is written to nested in-memory cache immediately:
    `cache[key][process_name] = data`
-2. Special fields (process_name, timestamp, status, status_int) are
-   extracted from data
+2. Special fields (process_name, timestamp, status, status_int, username)
+   are extracted from data
 3. Entry is appended to current WAL file (contains full data)
 4. WAL is rotated when size/count/age thresholds are met
 5. Background thread periodically flushes batched writes to DuckDB with
@@ -458,17 +463,19 @@ class StorageKeys(StrEnum):
     TIMESTAMP = "timestamp"         # Timestamp (auto-converted from string)
     STATUS = "status"               # Status string
     STATUS_INT = "status_int"       # Status integer
+    USERNAME = "username"           # Username identifier
 ```
 
 **Usage:**
 ```python
-from fast_persist_claude import StorageKeys
+from fast_persist import StorageKeys
 
 data = {
     "my_field": "value",
     StorageKeys.PROCESS_NAME: "worker1",
     StorageKeys.TIMESTAMP: "2025-01-15T10:30:00Z",
-    StorageKeys.STATUS: "running"
+    StorageKeys.STATUS: "running",
+    StorageKeys.USERNAME: "alice"
 }
 storage.store("key", data)
 ```
@@ -500,7 +507,7 @@ Initialize the storage system with date-based isolation.
 - Database path: `{db_dir}/{YYYY-MM-DD}/{db_name}` for DuckDB
 - This allows running multiple dates concurrently in separate processes
 
-#### `store(key: str, data: dict[str, Any], process_name: str | None = None, timestamp: str | dt.datetime | None = None)`
+#### `store(key: str, data: dict[str, Any], process_name: str | None = None, timestamp: str | dt.datetime | None = None, username: str | None = None)`
 
 Store data with optional process and time tracking.
 
@@ -511,6 +518,8 @@ Store data with optional process and time tracking.
   from `data["process_name"]` if present, otherwise None
 - `timestamp`: Optional timestamp (string or datetime). If not provided,
   extracted from `data["timestamp"]` if present
+- `username`: Optional username identifier. If not provided, extracted
+  from `data["username"]` if present, otherwise None
 
 **Special Fields:**
 The following fields, if present in `data`, are automatically extracted
@@ -519,6 +528,7 @@ and stored in separate indexed columns while remaining in the data dict:
 - `timestamp`: Timestamp (converted to datetime if string)
 - `status`: Status string
 - `status_int`: Status integer
+- `username`: Username identifier
 
 **Storage:**
 Data is stored with composite key `(key, process_name)` allowing
