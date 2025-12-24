@@ -1,4 +1,4 @@
-"""Claude fast persistent storage using DuckDB and Write-Ahead Logs (WAL)"""
+"""Dated Fast Persist - Date-based persistent storage using DuckDB and Write-Ahead Logs (WAL)"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ else:
     from backports.strenum import StrEnum  # type: ignore
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("dated_fast_persist")
 
 
 class StorageKeys(StrEnum):

@@ -1,11 +1,11 @@
-"""Test and demonstration script for fast_persist."""
+"""Test and demonstration script for dated_fast_persist."""
 
 from __future__ import annotations
 
 import datetime as dt
 import random
 
-from fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
+from dated_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Two-stage crash recovery test for fast_persist.
+"""Two-stage crash recovery test for dated_fast_persist.
 
 Stage 1: Write data and kill process while WAL files exist
 Stage 2: Recover from WAL, verify data, clean shutdown, verify parquet
@@ -10,7 +10,7 @@ import datetime as dt
 import os
 import sys
 
-from fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
+from dated_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 
 def stage1_write_and_crash():
