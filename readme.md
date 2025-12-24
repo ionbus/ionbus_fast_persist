@@ -1,7 +1,6 @@
-# fast_persist
+# dated_fast_persist
 
-A high-performance Python persistence layer combining Write-Ahead Logs (WAL)
-with DuckDB for fast asynchronous writes and reliable storage.
+A high-performance Python persistence layer with date-based storage isolation, combining Write-Ahead Logs (WAL) with DuckDB for fast asynchronous writes and reliable storage.
 
 <!-- TOC start (generated with https://bitdowntoc.derlin.ch/) -->
 
@@ -50,8 +49,8 @@ with DuckDB for fast asynchronous writes and reliable storage.
 
 ## Overview
 
-`fast_persist` provides a hybrid storage system designed for FastAPI servers
-and high-performance applications:
+`dated_fast_persist` provides a hybrid storage system designed for FastAPI servers
+and high-performance applications with date-based storage isolation:
 
 - **Fast async writes** via Write-Ahead Logs (WAL)
 - **Reliable persistence** using DuckDB
@@ -117,7 +116,7 @@ conda install -c conda-forge backports.strenum
 
 ```python
 import datetime as dt
-from fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
+from dated_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 # Initialize with default configuration (date is required)
 storage = WALDuckDBStorage(dt.date.today(), "data.duckdb")
@@ -161,7 +160,7 @@ storage.close()
 import datetime as dt
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fast_persist import WALDuckDBStorage, StorageKeys
+from dated_fast_persist import WALDuckDBStorage, StorageKeys
 
 app = FastAPI()
 # Initialize with current date - each date has separate storage
@@ -222,7 +221,7 @@ Athena.
 
 ```python
 import datetime as dt
-from fast_persist import WALDuckDBStorage, WALConfig
+from dated_fast_persist import WALDuckDBStorage, WALConfig
 
 # Option 1: Automatic export on close (recommended)
 config = WALConfig(parquet_path="./data_export")
@@ -278,7 +277,7 @@ storage.export_to_parquet("./custom_export")
 
 ## Date-Based Storage Isolation
 
-`fast_persist` requires a date when initializing storage, providing
+`dated_fast_persist` requires a date when initializing storage, providing
 complete isolation between different dates. This enables:
 
 - **Concurrent multi-date processing**: Run separate processes for
@@ -320,7 +319,7 @@ storage = WALDuckDBStorage(dt.date.today(), "data.duckdb")
 
 ## Multi-Process Tracking
 
-`fast_persist` supports tracking data from multiple processes under the
+`dated_fast_persist` supports tracking data from multiple processes under the
 same key, making it ideal for distributed systems and parallel processing:
 
 ### Storage Model
@@ -395,7 +394,7 @@ On startup:
 
 ### Crash Safety
 
-`fast_persist` is designed for crash consistency through a two-layer
+`dated_fast_persist` is designed for crash consistency through a two-layer
 protection mechanism:
 
 **DuckDB Layer Protection:**
@@ -468,7 +467,7 @@ class StorageKeys(StrEnum):
 
 **Usage:**
 ```python
-from fast_persist import StorageKeys
+from dated_fast_persist import StorageKeys
 
 data = {
     "my_field": "value",
