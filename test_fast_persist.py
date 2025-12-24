@@ -25,6 +25,7 @@ if __name__ == "__main__":
     def generate_update():
         task_id = random.choice(["task_1", "task_2", "task_3"])
         worker_id = random.choice(["worker1", "worker2", "worker3", None])
+        username = random.choice(["alice", "bob", "charlie", None])
         data = {
             "value": random.randint(1, 1000),
             StorageKeys.TIMESTAMP: dt.datetime.now().isoformat(),
@@ -32,6 +33,7 @@ if __name__ == "__main__":
                 ["running", "completed", "failed"]
             ),
             StorageKeys.STATUS_INT: random.randint(0, 2),
+            StorageKeys.USERNAME: username,
             "metadata": {"source": "simulator"},
         }
         if worker_id:
@@ -61,7 +63,9 @@ if __name__ == "__main__":
     if all_task1:
         print(f"task_1 has {len(all_task1)} processes:")
         for proc_name, data in all_task1.items():
-            print(f"  {proc_name}: status={data.get('status')}")
+            username = data.get(StorageKeys.USERNAME, "N/A")
+            status = data.get(StorageKeys.STATUS, "N/A")
+            print(f"  {proc_name}: status={status}, username={username}")
 
     # Test specific process retrieval
     worker1_task1 = storage.get_key_process("task_1", "worker1")

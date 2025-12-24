@@ -33,6 +33,7 @@ class StorageKeys(StrEnum):
     TIMESTAMP = "timestamp"
     STATUS = "status"
     STATUS_INT = "status_int"
+    USERNAME = "username"
 
 
 def _parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
@@ -148,6 +149,7 @@ class WALDuckDBStorage:
                 timestamp TIMESTAMP,
                 status VARCHAR,
                 status_int INTEGER,
+                username VARCHAR,
                 updated_at TIMESTAMP,
                 version INTEGER DEFAULT 1,
                 PRIMARY KEY (key, process_name)
@@ -270,6 +272,7 @@ class WALDuckDBStorage:
         data: dict[str, Any],
         process_name: str | None = None,
         timestamp: str | dt.datetime | None = None,
+        username: str | None = None,
     ):
         """Store data with async write to WAL.
 
@@ -278,6 +281,7 @@ class WALDuckDBStorage:
             data: Dictionary to store (keeps all fields)
             process_name: Process identifier (extracted from data if None)
             timestamp: Timestamp (extracted from data if None)
+            username: Username (extracted from data if None)
         """
         with self.write_lock:
             # Extract process_name: parameter > data field > ""
@@ -287,6 +291,10 @@ class WALDuckDBStorage:
             # Extract timestamp: parameter > data field > None
             if timestamp is None:
                 timestamp = data.get(StorageKeys.TIMESTAMP)
+
+            # Extract username: parameter > data field > None
+            if username is None:
+                username = data.get(StorageKeys.USERNAME)
 
             # Update nested in-memory cache immediately
             if key not in self.cache:
@@ -302,11 +310,12 @@ class WALDuckDBStorage:
             if self.current_wal_file is None:
                 self._rotate_wal()
 
-            # Write to WAL (includes process_name in record)
+            # Write to WAL (includes process_name and username in record)
             record = {
                 "key": key,
                 "process_name": process_name,
                 "data": data,
+                "username": username,
                 "timestamp": dt.datetime.now().isoformat(),
             }
             wal_entry = json.dumps(record) + "\n"
@@ -397,6 +406,7 @@ class WALDuckDBStorage:
                         )
                         status = data.get(StorageKeys.STATUS)
                         status_int = data.get(StorageKeys.STATUS_INT)
+                        username = data.get(StorageKeys.USERNAME)
 
                         batch_data.append(
                             (
@@ -408,6 +418,7 @@ class WALDuckDBStorage:
                                 timestamp,
                                 status,
                                 status_int,
+                                username,
                                 dt.datetime.now(),
                                 key,
                                 process_name,
@@ -422,8 +433,8 @@ class WALDuckDBStorage:
                     """
                     INSERT OR REPLACE INTO storage
                     (key, process_name, data, timestamp, status,
-                     status_int, updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?,
+                     status_int, username, updated_at, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?,
                         COALESCE(
                             (SELECT version + 1 FROM storage
                              WHERE key = ? AND process_name IS NOT DISTINCT FROM ?),
@@ -534,6 +545,7 @@ class WALDuckDBStorage:
                 timestamp,
                 status,
                 status_int,
+                username,
                 updated_at,
                 version,
                 ? as date
