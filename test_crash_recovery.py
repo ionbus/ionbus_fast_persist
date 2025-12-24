@@ -31,22 +31,23 @@ def stage1_write_and_crash():
 
     # Write test data across multiple processes
     test_data = [
-        ("metrics", {"cpu": 75, "memory": 60, "disk": 45}, "server1"),
-        ("metrics", {"cpu": 82, "memory": 55, "disk": 50}, "server2"),
-        ("metrics", {"cpu": 68, "memory": 70, "disk": 38}, "server3"),
-        ("status", {"state": "running", "uptime": 3600}, "server1"),
-        ("status", {"state": "running", "uptime": 7200}, "server2"),
-        ("status", {"state": "degraded", "uptime": 1800}, "server3"),
-        ("alerts", {"level": "warning", "count": 5}, "server1"),
-        ("alerts", {"level": "info", "count": 12}, "server2"),
-        ("alerts", {"level": "critical", "count": 2}, "server3"),
+        ("metrics", {"cpu": 75, "memory": 60, "disk": 45}, "server1", "admin"),
+        ("metrics", {"cpu": 82, "memory": 55, "disk": 50}, "server2", "admin"),
+        ("metrics", {"cpu": 68, "memory": 70, "disk": 38}, "server3", "ops"),
+        ("status", {"state": "running", "uptime": 3600}, "server1", "admin"),
+        ("status", {"state": "running", "uptime": 7200}, "server2", "admin"),
+        ("status", {"state": "degraded", "uptime": 1800}, "server3", "ops"),
+        ("alerts", {"level": "warning", "count": 5}, "server1", "admin"),
+        ("alerts", {"level": "info", "count": 12}, "server2", "ops"),
+        ("alerts", {"level": "critical", "count": 2}, "server3", "ops"),
     ]
 
     print("\nWriting initial data...")
-    for key, data, process in test_data:
+    for key, data, process, username in test_data:
         data[StorageKeys.TIMESTAMP] = dt.datetime.now().isoformat()
         data[StorageKeys.STATUS] = "active"
         data[StorageKeys.STATUS_INT] = 1
+        data[StorageKeys.USERNAME] = username
         storage.store(key, data, process_name=process)
         print(f"  Stored: key={key}, process={process}")
 
@@ -135,7 +136,8 @@ def stage2_recover_and_verify():
     server1_metrics = storage.get_key_process("metrics", "server1")
     if server1_metrics:
         print(f"\n✓ server1 metrics: cpu={server1_metrics.get('cpu')}, "
-              f"memory={server1_metrics.get('memory')}")
+              f"memory={server1_metrics.get('memory')}, "
+              f"username={server1_metrics.get(StorageKeys.USERNAME)}")
     else:
         print("\n✗ FAILED: Could not retrieve server1 metrics")
         all_verified = False
@@ -143,7 +145,8 @@ def stage2_recover_and_verify():
     server3_status = storage.get_key_process("status", "server3")
     if server3_status:
         print(f"✓ server3 status: state={server3_status.get('state')}, "
-              f"uptime={server3_status.get('uptime')}")
+              f"uptime={server3_status.get('uptime')}, "
+              f"username={server3_status.get(StorageKeys.USERNAME)}")
     else:
         print("✗ FAILED: Could not retrieve server3 status")
         all_verified = False
@@ -212,7 +215,12 @@ def verify_parquet_structure(parquet_path: str):
 
         # Show sample data
         print("\nSample data from parquet:")
-        print(df[["key", "process_name", "timestamp", "status"]].head(10))
+        # Check if username column exists
+        if "username" in df.columns:
+            print(df[["key", "process_name", "timestamp", "status", "username"]].head(10))
+        else:
+            print("Note: 'username' column not found in parquet")
+            print(df[["key", "process_name", "timestamp", "status"]].head(10))
 
 
 if __name__ == "__main__":
