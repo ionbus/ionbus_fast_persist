@@ -23,7 +23,7 @@ else:
     from backports.strenum import StrEnum  # type: ignore
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("dated_fast_persist")
+logger = logging.getLogger("fast_persist")
 
 
 class StorageKeys(StrEnum):
