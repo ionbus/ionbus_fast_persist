@@ -221,11 +221,12 @@ if __name__ == "__main__":
     # Test 7: Database health check
     print("\n[Test 7] Database health checks...")
 
+    # Use existing connections to avoid read-only conflict
     history_healthy = storage.check_database_health(
-        storage.history_db_path, "storage_history"
+        storage.history_db_path, "storage_history", storage.history_conn
     )
     latest_healthy = storage.check_database_health(
-        storage.latest_db_path, "storage_latest"
+        storage.latest_db_path, "storage_latest", storage.latest_conn
     )
 
     print(f"✓ History DB health: {'OK' if history_healthy else 'FAILED'}")

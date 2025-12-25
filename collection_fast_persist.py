@@ -177,13 +177,15 @@ class CollectionFastPersist:
             logger.error(f"Error releasing lock file: {e}")
 
     def check_database_health(
-        self, db_path: Path, table_name: str
+        self, db_path: Path, table_name: str, conn=None
     ) -> bool:
         """Check if database file is readable and not corrupted.
 
         Args:
             db_path: Path to DuckDB file
             table_name: Name of table to verify
+            conn: Optional existing connection to use (avoids read-only
+                  conflict)
 
         Returns:
             True if healthy, False if corrupted
@@ -193,16 +195,21 @@ class CollectionFastPersist:
             return True
 
         try:
-            # Try to connect read-only
-            conn = duckdb.connect(str(db_path), read_only=True)
+            # If connection provided, use it (already open)
+            if conn is not None:
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {table_name}"
+                ).fetchone()
+                conn.execute("PRAGMA database_size").fetchone()
+                return True
 
-            # Try to query the table
-            conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-
-            # Check database size (forces file integrity check)
-            conn.execute("PRAGMA database_size").fetchone()
-
-            conn.close()
+            # Otherwise try read-only connection
+            test_conn = duckdb.connect(str(db_path), read_only=True)
+            test_conn.execute(
+                f"SELECT COUNT(*) FROM {table_name}"
+            ).fetchone()
+            test_conn.execute("PRAGMA database_size").fetchone()
+            test_conn.close()
             return True
         except Exception as e:
             logger.error(
@@ -1152,7 +1159,12 @@ class CollectionFastPersist:
         # Update latest values table
         self._update_latest_table()
 
-        # Backup databases to date directory
+        # Close DuckDB connections BEFORE backing up
+        # (Windows locks files while they're open)
+        self.history_conn.close()
+        self.latest_conn.close()
+
+        # Now backup databases to date directory
         self._backup_databases()
 
         # Close WAL file
@@ -1172,10 +1184,6 @@ class CollectionFastPersist:
 
         # Clean up old date directories
         self._cleanup_old_date_directories()
-
-        # Close DuckDB connections
-        self.history_conn.close()
-        self.latest_conn.close()
 
         # Release lock
         self._release_lock()
