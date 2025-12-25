@@ -5,35 +5,17 @@ from __future__ import annotations
 import datetime as dt
 import duckdb
 import json
-import logging
 import os
 import pandas as pd
-import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from fast_persist_common import StorageKeys, setup_logger
 
-# Handle StrEnum for different Python versions
-if sys.version_info >= (3, 11):
-    from enum import StrEnum
-else:
-    from backports.strenum import StrEnum  # type: ignore
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("fast_persist")
-
-
-class StorageKeys(StrEnum):
-    """String enumeration for special storage dictionary keys"""
-
-    PROCESS_NAME = "process_name"
-    TIMESTAMP = "timestamp"
-    STATUS = "status"
-    STATUS_INT = "status_int"
-    USERNAME = "username"
+logger = setup_logger("dated_fast_persist")
 
 
 def _parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
