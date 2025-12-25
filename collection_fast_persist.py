@@ -87,8 +87,12 @@ class CollectionFastPersist:
 
         # Set up configuration
         self.config = config or CollectionConfig()
-        self.config.base_dir = base_dir
-        self.base_dir = Path(base_dir)
+        # Use config's base_dir if provided, otherwise use parameter
+        if config and config.base_dir:
+            self.base_dir = Path(config.base_dir)
+        else:
+            self.base_dir = Path(base_dir)
+            self.config.base_dir = base_dir
 
         # Database paths (in base_dir, NOT date-specific)
         self.history_db_path = self.base_dir / "storage_history.duckdb"

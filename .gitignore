@@ -27,3 +27,4 @@ data.duckdb
 wal_storage 
 2025-* 
 collection_storage 
+crash_test_collection 
