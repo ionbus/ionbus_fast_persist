@@ -9,9 +9,28 @@ The logger and the StorageKeys enum should be moved to a new shared utility file
 ## Key Differences from dated_fast_persist
 
 ### Constructor
-- **Instead of**: `date` parameter
-- **Use**: `collection` parameter (type: string)
-- Provides collection-based isolation instead of date-based isolation
+```python
+def __init__(
+    self,
+    date: dt.date | dt.datetime | str,
+    base_dir: str = "./collection_storage",
+    config: CollectionConfig | None = None,
+)
+```
+
+**Parameters:**
+- `date`: Date for backup/WAL organization (NOT for data isolation)
+  - Type: `dt.date | dt.datetime | str`
+  - Used to organize WAL files and backups into date directories
+  - Single instance per date (enforced via file locking)
+- `base_dir`: Base directory for storage files
+- `config`: Configuration object with retention settings
+
+**Date Usage:**
+- Date is used ONLY for organizing backups and WAL files
+- Data organization is purely by collection/item_name (no date filtering)
+- All dates' data stored in same DuckDB files
+- Unlike dated_fast_persist, this does NOT provide date-based data isolation
 
 ### Storage Model
 - **Instead of**: `process_name` field
@@ -95,11 +114,136 @@ cache[key][collection_name][item_name] = {
 ### Change Tracking
 Maintain an in-memory set/list of modified (key, collection_name, item_name) tuples to efficiently update only changed rows in the latest values table.
 
-## WAL Files
-- Similar to dated_fast_persist
+## File Organization and Backup Strategy
+
+### Directory Structure
+```
+./base_dir/
+  ├── storage_history.duckdb          # Active history DB (all dates)
+  ├── storage_latest.duckdb           # Active latest values DB
+  ├── .lock                           # Instance lock file
+  ├── 2025-12-20/                     # Old day (auto-deleted)
+  │   ├── wal_000001.jsonl
+  │   ├── storage_history.duckdb.backup
+  │   └── storage_latest.duckdb.backup
+  ├── 2025-12-23/                     # Yesterday
+  │   ├── wal_000001.jsonl
+  │   ├── storage_history.duckdb.backup
+  │   └── storage_latest.duckdb.backup
+  └── 2025-12-24/                     # Today (active)
+      ├── wal_000001.jsonl
+      └── wal_000002.jsonl
+```
+
+### WAL Files
+- Located in `base_dir/{date}/wal_*.jsonl`
 - Records include: key, collection_name, item_name, data, value (in native type), and all special fields
 - Value stored in native JSON type (number/string/null) for type preservation
 - Used for crash recovery
+
+### DuckDB Files
+**Active Files** (in `base_dir/`):
+- `storage_history.duckdb` - All updates across all dates
+- `storage_latest.duckdb` - Latest values across all dates
+
+**Backup Files** (in `base_dir/{date}/`):
+- `storage_history.duckdb.backup` - Copy of history DB at end of day
+- `storage_latest.duckdb.backup` - Copy of latest DB at end of day
+
+### Backup Behavior
+**On Shutdown (`close()`):**
+1. Flush all pending writes to DuckDB
+2. Update latest values table for changed records only
+3. Copy `storage_history.duckdb` → `base_dir/{date}/storage_history.duckdb.backup`
+4. Copy `storage_latest.duckdb` → `base_dir/{date}/storage_latest.duckdb.backup`
+5. Clean up date directories older than `retain_days`
+
+### Startup Behavior
+**If date directory exists** (indicates restart/recovery scenario):
+1. Check for WAL files in `base_dir/{date}/`
+2. If WAL files exist: Replay them into history DB (crash recovery)
+3. If history DB won't open: Throw exception with reconstruction instructions
+4. If latest DB won't open: Throw exception with reconstruction instructions
+5. Load collections into memory cache as accessed
+
+**If date directory doesn't exist** (new day):
+1. Create `base_dir/{date}/` directory
+2. Initialize normally
+
+### Retention and Cleanup
+- **Configuration**: `retain_days` parameter (default: 5)
+- **Cleanup Trigger**: Automatic on `close()`
+- **What Gets Deleted**: Entire date directories older than `retain_days`
+- **What's Kept**: Current date + previous `retain_days - 1` days
+
+Example with `retain_days=5`:
+- Today: 2025-12-24
+- Keeps: 2025-12-24, 2025-12-23, 2025-12-22, 2025-12-21, 2025-12-20
+- Deletes: 2025-12-19 and older
+
+## Database Reconstruction
+
+### Manual Reconstruction Functions
+
+These functions must be called explicitly by the user when database corruption is detected.
+
+#### `rebuild_history_from_wal(date: dt.date | dt.datetime | str) -> int`
+Reconstructs the history database from WAL files for a specific date.
+
+**Parameters:**
+- `date`: The date directory to read WAL files from
+
+**Returns:** Number of records recovered
+
+**Behavior:**
+1. Reads all WAL files from `base_dir/{date}/wal_*.jsonl`
+2. Replays entries into `storage_history.duckdb`
+3. Updates in-memory cache
+4. Does NOT touch `storage_latest.duckdb`
+
+**When to Use:**
+- History DB file is corrupted and won't open
+- Exception message indicates history DB reconstruction needed
+- Want to recover data from specific date's WAL files
+
+#### `rebuild_latest_from_history() -> int`
+Reconstructs the latest values database from the history database.
+
+**Parameters:** None
+
+**Returns:** Number of latest records created
+
+**Behavior:**
+1. Reads all data from `storage_history.duckdb`
+2. Groups by `(key, collection_name, item_name)`
+3. Takes the most recent version for each group
+4. Writes to `storage_latest.duckdb`
+5. Updates in-memory cache
+
+**When to Use:**
+- Latest DB file is corrupted and won't open
+- Exception message indicates latest DB reconstruction needed
+- Latest DB is out of sync with history
+
+### Error Handling
+
+**If DuckDB file won't open on startup:**
+```python
+Exception: CollectionFastPersistError
+Message: "Failed to open storage_history.duckdb.
+         Database may be corrupted. To recover:
+         1. Delete the corrupted file
+         2. Call rebuild_history_from_wal(date) for each date
+            that needs recovery
+         3. Call rebuild_latest_from_history() to rebuild latest values"
+```
+
+**Single Instance Enforcement:**
+```python
+Exception: CollectionFastPersistError
+Message: "Another instance is already running for date {date}.
+         Lock file exists at {base_dir}/.lock"
+```
 
 ## Use Cases
 This class is designed for scenarios where you need to track collections of related items:
@@ -109,11 +253,38 @@ This class is designed for scenarios where you need to track collections of rela
 - **Configuration sets**: Grouping related configuration items together
 - **Inventory collections**: Organizing items by category or location
 
+## Configuration
+
+### CollectionConfig
+```python
+@dataclass
+class CollectionConfig:
+    base_dir: str = "./collection_storage"
+    max_wal_size: int = 10 * 1024 * 1024  # 10MB
+    batch_size: int = 1000
+    duckdb_flush_interval_seconds: int = 30
+    retain_days: int = 5  # Keep 5 days of backups
+```
+
+**Configuration Options:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `base_dir` | `"./collection_storage"` | Base directory for all files |
+| `max_wal_size` | `10485760` (10MB) | Max WAL file size before rotation |
+| `batch_size` | `1000` | Records before batch flush |
+| `duckdb_flush_interval_seconds` | `30` | Force flush interval |
+| `retain_days` | `5` | Number of days to retain backups |
+
 ## Implementation Steps
 1. Create `fast_persist_common.py` with shared StorageKeys enum and logger setup
 2. Update `dated_fast_persist.py` to import from common module
 3. Create `collection_fast_persist.py` based on dated_fast_persist structure
-4. Implement dual-table DuckDB storage
-5. Implement collection-based in-memory caching
+4. Implement dual-table DuckDB storage (history and latest)
+5. Implement collection-based in-memory caching with three-level nesting
 6. Implement change tracking for efficient latest table updates
-7. Create tests demonstrating collection-based usage 
+7. Implement date-based WAL organization and backup strategy
+8. Implement file locking for single-instance enforcement
+9. Implement automatic cleanup of old date directories
+10. Implement manual reconstruction functions
+11. Implement typed value column handling (value_int, value_float, value_string)
+12. Create tests demonstrating collection-based usage with typed values 
