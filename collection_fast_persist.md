@@ -16,7 +16,10 @@ The logger and the StorageKeys enum should be moved to a new shared utility file
 ### Storage Model
 - **Instead of**: `process_name` field
 - **Use**: `item_name` and `collection_name` fields
-- **Additional field**: `value` (type: `str | None`) - stored in addition to the data dictionary
+- **Additional field**: `value` (type: `int | float | str | None`) - stored in addition to the data dictionary
+  - Stored in typed columns to avoid casting overhead
+  - Type can change between updates without warning
+  - Only one of the three value columns is populated per record
 - **Retains**: All special fields (timestamp, status, status_int, username) as they are used by dated_fast_persist
 
 ### Store Function Signature
@@ -27,20 +30,33 @@ def store(
     data: dict[str, Any],
     item_name: str | None = None,
     collection_name: str | None = None,
-    value: str | None = None,
+    value: int | float | str | None = None,
     timestamp: str | dt.datetime | None = None,
     username: str | None = None,
 )
 ```
 
+**Value Handling:**
+- Function accepts `int | float | str | None`
+- Automatically routes to appropriate column based on type:
+  - `int` → `value_int` (BIGINT)
+  - `float` → `value_float` (DOUBLE)
+  - `str` → `value_string` (VARCHAR)
+  - `None` → all value columns NULL
+
 ### In-Memory Cache Structure
 ```python
 cache[key][collection_name][item_name] = {
     "data": data,
-    "value": value,
+    "value": value,  # Stored in native Python type (int/float/str/None)
     # ... other special fields
 }
 ```
+
+**Retrieval:**
+- Returns `value` field with the correct native type
+- Type determined from which column is populated in database
+- Type can change between reads without warning
 
 **Collection Loading Behavior**: Whenever a given key and collection are used to either save or read from, that entire collection will be loaded into memory and kept there for fast access throughout the session.
 
@@ -53,7 +69,9 @@ cache[key][collection_name][item_name] = {
   - `collection_name` (VARCHAR)
   - `item_name` (VARCHAR)
   - `data` (JSON)
-  - `value` (VARCHAR, nullable)
+  - `value_int` (BIGINT, nullable) - for integer values
+  - `value_float` (DOUBLE, nullable) - for floating point values
+  - `value_string` (VARCHAR, nullable) - for string values
   - `timestamp` (TIMESTAMP, nullable)
   - `status` (VARCHAR, nullable)
   - `status_int` (INTEGER, nullable)
@@ -62,22 +80,25 @@ cache[key][collection_name][item_name] = {
   - `version` (INTEGER)
 - **Primary Key**: `(key, collection_name, item_name)`
 - **Behavior**: Stores every update, updated in real-time
+- **Value Storage**: Only one of `value_int`, `value_float`, or `value_string` is populated per record
 
 ### Table 2: Latest Values Table (storage_latest)
 - **Purpose**: Contains only the latest value for each (key, collection_name, item_name) combination
-- **Schema**: Same as history table
+- **Schema**: Same as history table (includes value_int, value_float, value_string)
 - **Primary Key**: `(key, collection_name, item_name)`
 - **Behavior**:
   - Updated at end of day only (on close or manual trigger)
   - Only updates rows that have changed during the session
   - Requires tracking which (key, collection_name, item_name) combinations have been modified
+- **Value Storage**: Only one of `value_int`, `value_float`, or `value_string` is populated per record
 
 ### Change Tracking
 Maintain an in-memory set/list of modified (key, collection_name, item_name) tuples to efficiently update only changed rows in the latest values table.
 
 ## WAL Files
 - Similar to dated_fast_persist
-- Records include: key, collection_name, item_name, data, value, and all special fields
+- Records include: key, collection_name, item_name, data, value (in native type), and all special fields
+- Value stored in native JSON type (number/string/null) for type preservation
 - Used for crash recovery
 
 ## Use Cases
