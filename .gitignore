@@ -26,3 +26,4 @@ metadata_conda_debug.yaml
 data.duckdb 
 wal_storage 
 2025-* 
+collection_storage 
