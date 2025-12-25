@@ -2,6 +2,66 @@
 
 A high-performance Python persistence layer with collection-based organization, combining Write-Ahead Logs (WAL) with dual-table DuckDB storage for fast asynchronous writes, efficient latest-value queries, and reliable historical tracking.
 
+<!-- TOC start (generated with https://github.com/derlin/bitdowntoc) -->
+
+- [Overview](#overview)
+- [Features](#features)
+- [Installation](#installation)
+   * [Dependencies](#dependencies)
+- [Usage](#usage)
+   * [Basic Example](#basic-example)
+   * [Form Data Example](#form-data-example)
+   * [Classroom Seating Example](#classroom-seating-example)
+   * [Custom Configuration](#custom-configuration)
+- [Configuration Options](#configuration-options)
+- [Collection Organization](#collection-organization)
+   * [Three-Level Hierarchy](#three-level-hierarchy)
+   * [Lazy Loading](#lazy-loading)
+- [Typed Value Support](#typed-value-support)
+- [Dual-Table Architecture](#dual-table-architecture)
+   * [History Table (`storage_history.duckdb`)](#history-table-storage_historyduckdb)
+   * [Latest Table (`storage_latest.duckdb`)](#latest-table-storage_latestduckdb)
+- [Database Health Checks](#database-health-checks)
+   * [Automatic Checks (on startup)](#automatic-checks-on-startup)
+   * [Manual Checks](#manual-checks)
+- [File Organization](#file-organization)
+   * [Directory Structure](#directory-structure)
+   * [Date Usage](#date-usage)
+- [Backup and Recovery](#backup-and-recovery)
+   * [Automatic Backups (on close)](#automatic-backups-on-close)
+   * [Crash Recovery (automatic)](#crash-recovery-automatic)
+   * [Manual Reconstruction](#manual-reconstruction)
+- [API Reference](#api-reference)
+   * [CollectionFastPersist](#collectionfastpersist)
+      + [`__init__(date, base_dir, config)`](#__init__date-base_dir-config)
+      + [`store(key, data, item_name, collection_name, value, timestamp, username)`](#storekey-data-item_name-collection_name-value-timestamp-username)
+      + [`get_key(key, collection_name=None)`](#get_keykey-collection_namenone)
+      + [`get_item(key, collection_name, item_name)`](#get_itemkey-collection_name-item_name)
+      + [`check_database_health(db_path, table_name, conn=None)`](#check_database_healthdb_path-table_name-connnone)
+      + [`rebuild_history_from_wal(date)`](#rebuild_history_from_waldate)
+      + [`rebuild_latest_from_history()`](#rebuild_latest_from_history)
+      + [`flush_data_to_duckdb()`](#flush_data_to_duckdb)
+      + [`get_stats()`](#get_stats)
+      + [`close()`](#close)
+- [Architecture](#architecture)
+   * [Write Path](#write-path)
+   * [Read Path](#read-path)
+   * [Recovery Process](#recovery-process)
+   * [Crash Safety](#crash-safety)
+- [Thread Safety](#thread-safety)
+- [Performance Characteristics](#performance-characteristics)
+- [Use Cases](#use-cases)
+- [Error Handling](#error-handling)
+   * [Database Corruption](#database-corruption)
+   * [Single Instance Violation](#single-instance-violation)
+- [Testing](#testing)
+- [License](#license)
+- [Contributing](#contributing)
+
+<!-- TOC end -->
+
+
+
 ## Overview
 
 `collection_fast_persist` provides a hybrid storage system designed for applications that need to organize related items into collections:
@@ -51,6 +111,12 @@ conda install -c conda-forge duckdb pandas pyarrow
 **For Python < 3.11:**
 ```bash
 pip install backports.strenum
+```
+
+Or with conda:
+
+```bash
+conda install -c conda-forge backports.strenum
 ```
 
 ## Usage

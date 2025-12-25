@@ -2,6 +2,28 @@
 
 High-performance Python persistence layers combining Write-Ahead Logs (WAL) with DuckDB for fast asynchronous writes and reliable storage.
 
+<!-- TOC start (generated with https://github.com/derlin/bitdowntoc) -->
+
+- [Choose Your Storage Model](#choose-your-storage-model)
+   * [📅 dated_fast_persist](#-dated_fast_persist)
+   * [📦 collection_fast_persist](#-collection_fast_persist)
+- [Quick Comparison](#quick-comparison)
+- [Common Features](#common-features)
+- [Installation](#installation)
+- [Architecture](#architecture)
+- [Decision Guide](#decision-guide)
+   * [Choose `dated_fast_persist` if you:](#choose-dated_fast_persist-if-you)
+   * [Choose `collection_fast_persist` if you:](#choose-collection_fast_persist-if-you)
+   * [Still unsure?](#still-unsure)
+- [Testing](#testing)
+- [Performance](#performance)
+- [Thread Safety](#thread-safety)
+- [License](#license)
+- [Contributing](#contributing)
+- [Documentation](#documentation)
+
+<!-- TOC end -->
+
 ## Choose Your Storage Model
 
 This repository provides two persistence solutions, each optimized for different use cases:
@@ -122,6 +144,12 @@ conda install -c conda-forge duckdb pandas pyarrow
 **For Python < 3.11:**
 ```bash
 pip install backports.strenum
+```
+
+Or with conda:
+
+```bash
+conda install -c conda-forge backports.strenum
 ```
 
 ## Architecture
