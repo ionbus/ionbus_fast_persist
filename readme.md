@@ -92,12 +92,19 @@ storage.store(
 Both solutions share these core capabilities:
 
 ✅ **Fast async writes** via Write-Ahead Logs (WAL)
+
 ✅ **Reliable persistence** using DuckDB
+
 ✅ **Automatic crash recovery** from WAL files
+
 ✅ **In-memory caching** for quick reads
+
 ✅ **Background batch processing** for database writes
+
 ✅ **Thread-safe** with proper locking
+
 ✅ **Configurable** WAL rotation and flush intervals
+
 ✅ **Special field support** (timestamp, status, username)
 
 ## Installation
