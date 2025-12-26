@@ -216,21 +216,40 @@ If your data model includes:
 
 ## Testing
 
+**Run all tests:**
+```bash
+python run_all_tests.py
+```
+
+This master test runner executes all 15 test suites sequentially and provides a comprehensive summary report.
+
+**Run individual tests:**
+
 Each module includes comprehensive tests:
 
 **dated_fast_persist:**
 ```bash
-python test_fast_persist.py           # Basic functionality
-python test_crash_recovery.py 1       # Crash simulation
-python test_crash_recovery.py 2       # Recovery verification
+python test_fast_persist.py                 # Basic functionality
+python test_data_persistence.py             # Data persistence (no DROP TABLE)
+python test_timestamp_username_params.py    # Timestamp/username parameters
+python test_wal_metadata_recovery.py        # WAL metadata recovery
+python test_process_name_none.py            # process_name=None preservation
+python test_crash_recovery.py 1             # Crash simulation
+python test_crash_recovery.py 2             # Recovery verification
 ```
 
 **collection_fast_persist:**
 ```bash
 python test_collection_fast_persist.py      # Full test suite
+python test_history_retention.py            # History retention
 python test_collection_crash_recovery.py 1  # Crash simulation
 python test_collection_crash_recovery.py 2  # Recovery verification
 python test_collection_crash_recovery.py 3  # Manual reconstruction
+```
+
+**Shared utilities:**
+```bash
+python test_parse_timestamp.py              # Timezone handling
 ```
 
 **Cleaning up test artifacts:**
