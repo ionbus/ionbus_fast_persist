@@ -52,19 +52,18 @@ class WALDuckDBStorage:
         else:  # dt.date
             self.date_str = date.isoformat()
 
-        # Update config to use date-specific directory
+        # Set up configuration
         self.config = config or WALConfig()
-        # Append date subdirectory to base_dir
-        self.config.base_dir = os.path.join(self.config.base_dir, self.date_str)
 
-        # Create date-specific database path
-        db_dir = os.path.dirname(db_path) if os.path.dirname(db_path) else "."
+        # Create date-specific directory (don't modify config.base_dir!)
+        self.wal_dir = os.path.join(self.config.base_dir, self.date_str)
+
+        # Create date-specific database path (in same dir as WAL files)
         db_name = os.path.basename(db_path)
-        self.db_path = os.path.join(db_dir, self.date_str, db_name)
+        self.db_path = os.path.join(self.wal_dir, db_name)
 
         # Create date-specific storage directories
-        Path(self.config.base_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.dirname(self.db_path)).mkdir(parents=True, exist_ok=True)
+        Path(self.wal_dir).mkdir(parents=True, exist_ok=True)
 
         # Threading primitives
         self.write_lock = threading.Lock()
@@ -102,7 +101,7 @@ class WALDuckDBStorage:
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS storage (
                 key VARCHAR NOT NULL,
-                process_name VARCHAR NOT NULL DEFAULT '',
+                process_name VARCHAR DEFAULT NULL,
                 data JSON,
                 timestamp TIMESTAMP,
                 status VARCHAR,
@@ -110,9 +109,60 @@ class WALDuckDBStorage:
                 username VARCHAR,
                 updated_at TIMESTAMP,
                 version INTEGER DEFAULT 1,
-                PRIMARY KEY (key, process_name)
+                UNIQUE (key, process_name)
             )
         """)
+
+        # Migrate existing tables: allow NULL for process_name
+        # Check if the table has the old schema (NOT NULL constraint)
+        schema_info = self.conn.execute(
+            "PRAGMA table_info('storage')"
+        ).fetchall()
+
+        # Find process_name column and check if it's NOT NULL
+        needs_migration = False
+        for col_info in schema_info:
+            # col_info format: (cid, name, type, notnull, dflt_value, pk)
+            if col_info[1] == "process_name" and col_info[3] == 1:  # notnull=1
+                needs_migration = True
+                break
+
+        if needs_migration:
+            self.conn.execute("BEGIN TRANSACTION")
+            try:
+                # Create temporary table with new schema
+                self.conn.execute("""
+                    CREATE TABLE storage_new (
+                        key VARCHAR NOT NULL,
+                        process_name VARCHAR DEFAULT NULL,
+                        data JSON,
+                        timestamp TIMESTAMP,
+                        status VARCHAR,
+                        status_int INTEGER,
+                        username VARCHAR,
+                        updated_at TIMESTAMP,
+                        version INTEGER DEFAULT 1,
+                        UNIQUE (key, process_name)
+                    )
+                """)
+                # Copy data
+                self.conn.execute("""
+                    INSERT INTO storage_new
+                    SELECT * FROM storage
+                """)
+                # Drop old table and rename new one
+                self.conn.execute("DROP TABLE storage")
+                self.conn.execute(
+                    "ALTER TABLE storage_new RENAME TO storage"
+                )
+                self.conn.execute("COMMIT")
+                logger.info(
+                    "Migrated storage table to allow NULL process_name"
+                )
+            except Exception as e:
+                self.conn.execute("ROLLBACK")
+                logger.error(f"Migration failed: {e}")
+                raise
 
         # Load existing data into nested cache structure
         result = self.conn.execute(
@@ -139,7 +189,7 @@ class WALDuckDBStorage:
 
     def _get_wal_files(self):
         """Get all WAL files sorted by sequence number"""
-        wal_dir = Path(self.config.base_dir)
+        wal_dir = Path(self.wal_dir)
         wal_files = sorted(
             wal_dir.glob("wal_*.jsonl"), key=lambda p: int(p.stem.split("_")[1])
         )
@@ -199,9 +249,7 @@ class WALDuckDBStorage:
             self.current_wal_file.close()
 
         self.wal_sequence += 1
-        wal_path = (
-            Path(self.config.base_dir) / f"wal_{self.wal_sequence:06d}.jsonl"
-        )
+        wal_path = Path(self.wal_dir) / f"wal_{self.wal_sequence:06d}.jsonl"
         self.current_wal = wal_path
         self.current_wal_file = open(wal_path, "a")
         self.current_wal_size = 0
@@ -212,15 +260,13 @@ class WALDuckDBStorage:
         # (Windows doesn't support directory fsync, skip on that platform)
         if os.name != "nt":
             try:
-                dir_fd = os.open(self.config.base_dir, os.O_RDONLY)
+                dir_fd = os.open(self.wal_dir, os.O_RDONLY)
                 try:
                     os.fsync(dir_fd)
                 finally:
                     os.close(dir_fd)
             except (OSError, PermissionError) as e:
-                logger.warning(
-                    f"Could not fsync directory {self.config.base_dir}: {e}"
-                )
+                logger.warning(f"Could not fsync directory {self.wal_dir}: {e}")
 
         logger.info(f"Rotated to new WAL file: {wal_path.name}")
 
@@ -242,9 +288,9 @@ class WALDuckDBStorage:
             username: Username (extracted from data if None)
         """
         with self.write_lock:
-            # Extract process_name: parameter > data field > ""
+            # Extract process_name: parameter > data field > None
             if process_name is None:
-                process_name = data.get(StorageKeys.PROCESS_NAME, "")
+                process_name = data.get(StorageKeys.PROCESS_NAME)
 
             # Extract timestamp: parameter > data field > current time
             if timestamp is None:
@@ -363,10 +409,6 @@ class WALDuckDBStorage:
                 batch_data = []
                 for key, process_dict in writes_to_flush.items():
                     for process_name, data in process_dict.items():
-                        # Ensure process_name is not None
-                        if process_name is None:
-                            process_name = ""
-
                         # Extract special fields from data
                         timestamp = parse_timestamp(
                             data.get(StorageKeys.TIMESTAMP)
@@ -395,21 +437,61 @@ class WALDuckDBStorage:
                 # Batch insert/update to DuckDB
                 self.conn.execute("BEGIN TRANSACTION")
 
+                # Get current versions for all keys/processes being updated
+                version_map = {}
+                for key, process_dict in writes_to_flush.items():
+                    for process_name in process_dict.keys():
+                        result = self.conn.execute(
+                            """
+                            SELECT COALESCE(MAX(version), 0)
+                            FROM storage
+                            WHERE key = ?
+                            AND process_name IS NOT DISTINCT FROM ?
+                            """,
+                            [key, process_name],
+                        ).fetchone()
+                        version_map[(key, process_name)] = (
+                            result[0] + 1 if result else 1
+                        )
+
+                # Prepare batch with calculated versions
+                batch_with_versions = []
+                for (
+                    key,
+                    process_name,
+                    data_json,
+                    timestamp,
+                    status,
+                    status_int,
+                    username,
+                    updated_at,
+                    _key,
+                    _process,
+                ) in batch_data:
+                    version = version_map[(key, process_name)]
+                    batch_with_versions.append(
+                        (
+                            key,
+                            process_name,
+                            data_json,
+                            timestamp,
+                            status,
+                            status_int,
+                            username,
+                            updated_at,
+                            version,
+                        )
+                    )
+
                 # Use INSERT OR REPLACE for upsert behavior
                 self.conn.executemany(
                     """
                     INSERT OR REPLACE INTO storage
                     (key, process_name, data, timestamp, status,
                      status_int, username, updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?,
-                        COALESCE(
-                            (SELECT version + 1 FROM storage
-                             WHERE key = ? AND process_name IS NOT DISTINCT FROM ?),
-                            1
-                        )
-                    )
-                """,  # noqa: E501
-                    batch_data,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    batch_with_versions,
                 )
 
                 self.conn.execute("COMMIT")
