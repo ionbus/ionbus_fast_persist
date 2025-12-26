@@ -131,6 +131,48 @@ Both solutions share these core capabilities:
 
 ✅ **Special field support** (timestamp, status, username)
 
+✅ **Automatic datetime normalization** (all timestamps are timezone-aware datetime objects)
+
+## Timestamp and Date Handling
+
+Both solutions automatically normalize datetime-like values for consistency:
+
+### In-Memory Representation (Cache)
+- **`timestamp` field**: Always a timezone-aware `datetime.datetime` object (UTC if no timezone specified)
+- **User data with datetime values**: Any `datetime.date` objects or ISO datetime strings in your data dict are converted to timezone-aware `datetime.datetime`
+- **Date isolation values** (dated_fast_persist): The `date` parameter remains a `datetime.date` for directory/file organization
+
+### Storage Representation (WAL/DuckDB)
+- **`timestamp` field**: Serialized to ISO 8601 string in JSON (e.g., `"2025-01-15T10:30:00+00:00"`)
+- **User data datetime values**: Serialized to ISO 8601 strings in JSON
+- **Date column** (Parquet exports in dated_fast_persist): ISO string format (e.g., `"2025-12-26"`)
+
+### Automatic Conversions
+When you store data, the system automatically converts:
+- ISO datetime strings → timezone-aware `datetime.datetime` (assume UTC if naive)
+- `datetime.date` objects → `datetime.datetime` at midnight UTC
+- Naive `datetime.datetime` → timezone-aware (assume UTC)
+- `pandas.Timestamp` → timezone-aware `datetime.datetime`
+
+### What This Means For You
+```python
+# All of these work and normalize to timezone-aware datetime
+storage.store("key", data, timestamp="2025-01-15T10:30:00Z")        # String
+storage.store("key", data, timestamp=dt.datetime.now())             # Naive datetime → UTC
+storage.store("key", data, timestamp=dt.datetime.now(dt.timezone.utc))  # Already tz-aware
+
+# Retrieved data always has datetime objects
+result = storage.get_key_process("key", "process")
+assert isinstance(result["timestamp"], dt.datetime)  # ✓ Always True
+assert result["timestamp"].tzinfo is not None        # ✓ Always timezone-aware
+```
+
+**Benefits:**
+- No type confusion across restarts (always `datetime.datetime` in memory)
+- Timezone-safe comparisons and arithmetic
+- Consistent behavior whether data came from WAL recovery or DuckDB
+- ISO strings in storage for interoperability
+
 ## Installation
 
 **Required:**
