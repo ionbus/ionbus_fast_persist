@@ -27,12 +27,15 @@ if __name__ == "__main__":
         timestamp=custom_timestamp,
     )
 
-    # Verify timestamp was preserved
+    # Verify timestamp was preserved (now a datetime object)
     result = storage.get_key_process("test_key", "worker1")
-    if result and result.get("timestamp") == custom_timestamp:
-        print(f"✓ Timestamp preserved: {result['timestamp']}")
+    result_ts = result.get("timestamp") if result else None
+    # Compare as datetime objects
+    expected_dt = dt.datetime.fromisoformat(custom_timestamp.replace("Z", "+00:00"))
+    if result_ts == expected_dt:
+        print(f"✓ Timestamp preserved: {result_ts}")
     else:
-        print(f"✗ FAILED: Expected {custom_timestamp}, got {result.get('timestamp') if result else 'None'}")
+        print(f"✗ FAILED: Expected {expected_dt}, got {result_ts}")
 
     # Test 2: Explicit username parameter
     print("\n[Test 2] Explicit username parameter")
@@ -61,13 +64,15 @@ if __name__ == "__main__":
     )
 
     result3 = storage.get_key_process("test_key3", "worker3")
-    ts_ok = result3 and result3.get("timestamp") == custom_ts
+    result3_ts = result3.get("timestamp") if result3 else None
+    expected_dt3 = dt.datetime.fromisoformat(custom_ts.replace("Z", "+00:00"))
+    ts_ok = result3_ts == expected_dt3
     user_ok = result3 and result3.get("username") == "bob"
 
     if ts_ok and user_ok:
-        print(f"✓ Both preserved: ts={result3['timestamp']}, user={result3['username']}")
+        print(f"✓ Both preserved: ts={result3_ts}, user={result3['username']}")
     else:
-        print(f"✗ FAILED: ts={result3.get('timestamp') if result3 else 'None'}, user={result3.get('username') if result3 else 'None'}")
+        print(f"✗ FAILED: ts={result3_ts}, user={result3.get('username') if result3 else 'None'}")
 
     # Test 4: Flush and reload to verify persistence
     print("\n[Test 4] Persistence across flush/reload")
@@ -77,11 +82,12 @@ if __name__ == "__main__":
     # Reopen and verify
     storage2 = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
     result_after = storage2.get_key_process("test_key", "worker1")
+    result_after_ts = result_after.get("timestamp") if result_after else None
 
-    if result_after and result_after.get("timestamp") == custom_timestamp:
-        print(f"✓ Timestamp persisted: {result_after['timestamp']}")
+    if result_after_ts == expected_dt:
+        print(f"✓ Timestamp persisted: {result_after_ts}")
     else:
-        print(f"✗ FAILED after reload: {result_after.get('timestamp')}")
+        print(f"✗ FAILED after reload: Expected {expected_dt}, got {result_after_ts}")
 
     storage2.close()
 

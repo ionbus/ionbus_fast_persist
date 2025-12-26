@@ -70,17 +70,20 @@ def serialize_to_json(data: dict | str) -> str:
     return json.dumps(data, default=datetime_handler)
 
 
-def deserialize_datetime_fields(data: dict) -> dict:
-    """Recursively convert ISO datetime strings back to datetime/date objects.
+def normalize_datetime_fields(data: dict) -> dict:
+    """Convert all datetime/date/string fields to timezone-aware datetime objects.
 
-    Detects and converts strings that match ISO 8601 datetime or date format.
-    Preserves timezone information when present.
+    Recursively processes nested dicts and lists. Converts:
+    - ISO datetime strings → timezone-aware datetime
+    - datetime.date → timezone-aware datetime (midnight UTC)
+    - pandas.Timestamp → timezone-aware datetime
+    - naive datetime → timezone-aware datetime (assume UTC)
 
     Args:
-        data: Dictionary that may contain ISO datetime strings
+        data: Dictionary that may contain datetime-like values
 
     Returns:
-        Dictionary with datetime strings converted back to datetime/date objects
+        Dictionary with all datetime-like values converted to timezone-aware datetime
     """
     if not isinstance(data, dict):
         return data
@@ -89,52 +92,55 @@ def deserialize_datetime_fields(data: dict) -> dict:
     for key, value in data.items():
         if isinstance(value, dict):
             # Recursively process nested dicts
-            result[key] = deserialize_datetime_fields(value)
+            result[key] = normalize_datetime_fields(value)
         elif isinstance(value, list):
             # Process lists recursively
             result[key] = [
-                deserialize_datetime_fields(item) if isinstance(item, dict) else item
+                normalize_datetime_fields(item) if isinstance(item, dict) else _normalize_single_value(item)
                 for item in value
             ]
-        elif isinstance(value, str):
-            # Try to parse as datetime or date
-            parsed = _try_parse_datetime(value)
-            result[key] = parsed if parsed is not None else value
         else:
-            result[key] = value
+            result[key] = _normalize_single_value(value)
     return result
 
 
-def _try_parse_datetime(s: str) -> dt.datetime | dt.date | None:
-    """Try to parse string as datetime or date, return None if not parseable.
+def _normalize_single_value(value):
+    """Normalize a single value to timezone-aware datetime if applicable."""
+    # Handle datetime objects
+    if isinstance(value, dt.datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=dt.timezone.utc)
+        return value
 
-    Args:
-        s: String to parse
+    # Handle date objects - convert to datetime at midnight UTC
+    if isinstance(value, dt.date):
+        return dt.datetime.combine(value, dt.time(0, 0, 0), tzinfo=dt.timezone.utc)
 
-    Returns:
-        datetime, date object, or None if not a valid ISO format
-    """
-    if not s:
-        return None
+    # Handle pandas Timestamp
+    if hasattr(value, "to_pydatetime") and type(value).__name__ == "Timestamp":
+        pydatetime = value.to_pydatetime()
+        if pydatetime.tzinfo is None:
+            return pydatetime.replace(tzinfo=dt.timezone.utc)
+        return pydatetime
 
-    try:
-        # Try datetime first (handles both date and datetime formats)
-        parsed = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    # Try parsing ISO strings
+    if isinstance(value, str):
+        try:
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            # If naive, assume UTC
+            if parsed.tzinfo is None:
+                # Check if it's a date-only string (no time component)
+                if "T" not in value and " " not in value and len(value) == 10:
+                    # Date-only string - set to midnight UTC
+                    return dt.datetime.combine(parsed.date(), dt.time(0, 0, 0), tzinfo=dt.timezone.utc)
+                # Naive datetime string - assume UTC
+                return parsed.replace(tzinfo=dt.timezone.utc)
+            return parsed
+        except (ValueError, AttributeError):
+            # Not a datetime string, return as-is
+            pass
 
-        # Check if it's date-only (no time component)
-        if parsed.time() == dt.time(0, 0, 0) and parsed.tzinfo is None:
-            # Could be a date - check if original string had time component
-            if "T" not in s and " " not in s and len(s) == 10:
-                return parsed.date()
-
-        # If naive datetime, assume UTC
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
-
-        return parsed
-    except (ValueError, AttributeError):
-        # Not a valid datetime string
-        return None
+    return value
 
 
 def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
@@ -154,6 +160,9 @@ def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
     if ts is None:
         return None
     if isinstance(ts, dt.datetime):
+        # Make sure it's timezone-aware
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=dt.timezone.utc)
         return ts
     # Parse ISO 8601 string - fromisoformat handles timezone info
     try:

@@ -15,6 +15,7 @@ from typing import Any
 
 from fast_persist_common import (
     StorageKeys,
+    normalize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
     setup_logger,
@@ -183,6 +184,9 @@ class WALDuckDBStorage:
             else:
                 data_dict = data
 
+            # Normalize all datetime fields to timezone-aware datetime
+            data_dict = normalize_datetime_fields(data_dict)
+
             # Initialize nested structure
             if key not in self.cache:
                 self.cache[key] = {}
@@ -229,8 +233,14 @@ class WALDuckDBStorage:
                             timestamp = record.get("timestamp")
                             username = record.get("username")
 
+                            # Normalize all datetime fields to timezone-aware datetime
+                            normalized_data = normalize_datetime_fields(data)
+
+                            # Parse timestamp to timezone-aware datetime
+                            timestamp = parse_timestamp(timestamp)
+
                             # Merge metadata into data (same as store())
-                            data_with_metadata = dict(data)
+                            data_with_metadata = dict(normalized_data)
                             if timestamp is not None:
                                 data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
                             if username is not None:
@@ -314,14 +324,19 @@ class WALDuckDBStorage:
             if timestamp is None:
                 timestamp = data.get(StorageKeys.TIMESTAMP)
             if timestamp is None:
-                timestamp = dt.datetime.now().isoformat()
+                timestamp = dt.datetime.now(dt.timezone.utc)
+            # Normalize to timezone-aware datetime
+            timestamp = parse_timestamp(timestamp)
 
             # Extract username: parameter > data field > None
             if username is None:
                 username = data.get(StorageKeys.USERNAME)
 
+            # Normalize all datetime fields in user data to timezone-aware datetime
+            normalized_data = normalize_datetime_fields(data)
+
             # Add timestamp and username to data dict (for cache/storage)
-            data_with_metadata = dict(data)
+            data_with_metadata = dict(normalized_data)
             data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
             if username is not None:
                 data_with_metadata[StorageKeys.USERNAME] = username
