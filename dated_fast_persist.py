@@ -122,7 +122,7 @@ class WALDuckDBStorage:
         # Find process_name column and check if it's NOT NULL
         needs_migration = False
         for col_info in schema_info:
-            # col_info format: (cid, name, type, notnull, dflt_value, pk)
+            # col_info format: (cid, name, type, notnull, default_value, pk)
             if col_info[1] == "process_name" and col_info[3] == 1:  # notnull=1
                 needs_migration = True
                 break
