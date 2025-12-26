@@ -227,7 +227,29 @@ python test_crash_recovery.py 2       # Recovery verification
 
 **collection_fast_persist:**
 ```bash
-python test_collection_fast_persist.py  # Full test suite
+python test_collection_fast_persist.py      # Full test suite
+python test_collection_crash_recovery.py 1  # Crash simulation
+python test_collection_crash_recovery.py 2  # Recovery verification
+python test_collection_crash_recovery.py 3  # Manual reconstruction
+```
+
+**Cleaning up test artifacts:**
+
+Tests create storage directories that persist between runs. Use the cleanup script:
+
+```bash
+python test_cleanup.py
+```
+
+Or manually remove directories:
+```bash
+# Unix/Linux/Mac:
+rm -rf ./wal_storage ./test_output ./crash_test_output
+rm -rf ./collection_test_storage ./crash_test_collection
+
+# Windows:
+rmdir /s /q wal_storage test_output crash_test_output
+rmdir /s /q collection_test_storage crash_test_collection
 ```
 
 ## Performance

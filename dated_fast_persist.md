@@ -680,6 +680,23 @@ This stage:
 - ✓ Parquet export with proper Hive structure
 - ✓ All WAL files cleaned up after shutdown
 
+**Cleaning up test artifacts:**
+
+Tests create storage directories that persist between runs. Use the cleanup script:
+
+```bash
+python test_cleanup.py
+```
+
+Or manually remove directories:
+```bash
+# Unix/Linux/Mac:
+rm -rf ./wal_storage ./test_output ./crash_test_output
+
+# Windows:
+rmdir /s /q wal_storage test_output crash_test_output
+```
+
 ## Thread Safety
 
 The storage system is thread-safe with the following guarantees:
