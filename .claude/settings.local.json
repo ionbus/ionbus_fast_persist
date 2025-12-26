@@ -7,7 +7,8 @@
       "Bash(dir:*)",
       "Bash(C:/Anaconda/Scripts/conda.exe run:*)",
       "Bash(git mv:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

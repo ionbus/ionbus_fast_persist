@@ -249,8 +249,7 @@ class CollectionFastPersist:
                 status_int INTEGER,
                 username VARCHAR,
                 updated_at TIMESTAMP,
-                version INTEGER DEFAULT 1,
-                PRIMARY KEY (key, collection_name, item_name)
+                version INTEGER DEFAULT 1
             )
         """)
 
@@ -473,9 +472,11 @@ class CollectionFastPersist:
             if collection_name is None:
                 collection_name = ""
 
-            # Extract timestamp: parameter > data field > None
+            # Extract timestamp: parameter > data field > current time
             if timestamp is None:
                 timestamp = data.get(StorageKeys.TIMESTAMP)
+            if timestamp is None:
+                timestamp = dt.datetime.now().isoformat()
 
             # Extract username: parameter > data field > None
             if username is None:
@@ -484,9 +485,12 @@ class CollectionFastPersist:
             # Load collection if not already in cache
             self._load_collection(key, collection_name)
 
-            # Add value to data dict (for cache)
+            # Add value, timestamp, and username to data dict (for cache)
             data_with_value = dict(data)
             data_with_value["value"] = value
+            data_with_value[StorageKeys.TIMESTAMP] = timestamp
+            if username is not None:
+                data_with_value[StorageKeys.USERNAME] = username
 
             # Update nested in-memory cache
             if key not in self.cache:
@@ -495,14 +499,17 @@ class CollectionFastPersist:
                 self.cache[key][collection_name] = {}
             self.cache[key][collection_name][item_name] = data_with_value
 
-            # Update nested pending_writes
+            # Update nested pending_writes (append to list for full history)
             if key not in self.pending_writes:
                 self.pending_writes[key] = {}
             if collection_name not in self.pending_writes[key]:
                 self.pending_writes[key][collection_name] = {}
-            self.pending_writes[key][collection_name][
-                item_name
-            ] = data_with_value
+            if item_name not in self.pending_writes[key][collection_name]:
+                self.pending_writes[key][collection_name][item_name] = []
+            # Append this update to the list
+            self.pending_writes[key][collection_name][item_name].append(
+                data_with_value
+            )
 
             # Track modification
             self.modified_records.add((key, collection_name, item_name))
@@ -519,7 +526,7 @@ class CollectionFastPersist:
                 "data": data,
                 "value": value,  # Native type preserved in JSON
                 "username": username,
-                "timestamp": dt.datetime.now().isoformat(),
+                "timestamp": timestamp,
             }
             wal_entry = json.dumps(record) + "\n"
             wal_bytes = wal_entry.encode("utf-8")
@@ -617,71 +624,81 @@ class CollectionFastPersist:
                 batch_data = []
                 for key, coll_dict in writes_to_flush.items():
                     for coll_name, item_dict in coll_dict.items():
-                        for item_name, data in item_dict.items():
-                            # Extract special fields
-                            timestamp = parse_timestamp(
-                                data.get(StorageKeys.TIMESTAMP)
-                            )
-                            status = data.get(StorageKeys.STATUS)
-                            status_int = data.get(StorageKeys.STATUS_INT)
-                            username = data.get(StorageKeys.USERNAME)
-                            value = data.get("value")
+                        for item_name, data_list in item_dict.items():
+                            # Get current max version for this item ONCE
+                            result = self.history_conn.execute(
+                                """
+                                SELECT COALESCE(MAX(version), 0)
+                                FROM storage_history
+                                WHERE key = ? AND collection_name = ?
+                                AND item_name = ?
+                                """,
+                                [key, coll_name, item_name],
+                            ).fetchone()
+                            current_version = result[0] if result else 0
 
-                            # Determine value column routing
-                            value_int = None
-                            value_float = None
-                            value_string = None
-
-                            if isinstance(value, int):
-                                value_int = value
-                            elif isinstance(value, float):
-                                value_float = value
-                            elif isinstance(value, str):
-                                value_string = value
-
-                            # Remove value from data before storing as JSON
-                            data_without_value = {
-                                k: v for k, v in data.items() if k != "value"
-                            }
-
-                            batch_data.append(
-                                (
-                                    key,
-                                    coll_name,
-                                    item_name,
-                                    json.dumps(data_without_value),
-                                    value_int,
-                                    value_float,
-                                    value_string,
-                                    timestamp,
-                                    status,
-                                    status_int,
-                                    username,
-                                    dt.datetime.now(),
-                                    key,
-                                    coll_name,
-                                    item_name,
+                            # Process each update in the list
+                            for data in data_list:
+                                # Extract special fields
+                                timestamp = parse_timestamp(
+                                    data.get(StorageKeys.TIMESTAMP)
                                 )
-                            )
+                                status = data.get(StorageKeys.STATUS)
+                                status_int = data.get(StorageKeys.STATUS_INT)
+                                username = data.get(StorageKeys.USERNAME)
+                                value = data.get("value")
 
-                # Batch insert/update to history DB
+                                # Determine value column routing
+                                value_int = None
+                                value_float = None
+                                value_string = None
+
+                                if isinstance(value, int):
+                                    value_int = value
+                                elif isinstance(value, float):
+                                    value_float = value
+                                elif isinstance(value, str):
+                                    value_string = value
+
+                                # Remove value from data before storing as JSON
+                                data_without_value = {
+                                    k: v
+                                    for k, v in data.items()
+                                    if k != "value"
+                                }
+
+                                # Increment version for each update
+                                current_version += 1
+
+                                batch_data.append(
+                                    (
+                                        key,
+                                        coll_name,
+                                        item_name,
+                                        json.dumps(data_without_value),
+                                        value_int,
+                                        value_float,
+                                        value_string,
+                                        timestamp,
+                                        status,
+                                        status_int,
+                                        username,
+                                        dt.datetime.now(),
+                                        current_version,
+                                    )
+                                )
+
+                # Batch insert to history DB (append all versions)
                 self.history_conn.execute("BEGIN TRANSACTION")
 
                 self.history_conn.executemany(
                     """
-                    INSERT OR REPLACE INTO storage_history
+                    INSERT INTO storage_history
                     (key, collection_name, item_name, data,
                      value_int, value_float, value_string,
                      timestamp, status, status_int, username,
                      updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        COALESCE(
-                            (SELECT version + 1 FROM storage_history
-                             WHERE key = ? AND collection_name = ?
-                             AND item_name = ?),
-                            1
-                        )
-                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     batch_data,
                 )
@@ -975,15 +992,27 @@ class CollectionFastPersist:
                         elif isinstance(value, str):
                             value_string = value
 
-                        # Insert into history DB
+                        # Get current max version for this item
+                        result = self.history_conn.execute(
+                            """
+                            SELECT COALESCE(MAX(version), 0)
+                            FROM storage_history
+                            WHERE key = ? AND collection_name = ?
+                            AND item_name = ?
+                            """,
+                            [key, collection_name, item_name],
+                        ).fetchone()
+                        current_version = result[0] if result else 0
+
+                        # Insert into history DB (append new version)
                         self.history_conn.execute(
                             """
-                            INSERT OR REPLACE INTO storage_history
+                            INSERT INTO storage_history
                             (key, collection_name, item_name, data,
                              value_int, value_float, value_string,
                              timestamp, status, status_int, username,
                              updated_at, version)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 key,
@@ -998,6 +1027,7 @@ class CollectionFastPersist:
                                 data.get(StorageKeys.STATUS_INT),
                                 username,
                                 dt.datetime.now(),
+                                current_version + 1,
                             ),
                         )
 
