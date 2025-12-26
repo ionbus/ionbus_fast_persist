@@ -41,10 +41,12 @@ This repository provides two persistence solutions, each optimized for different
 - Concurrent multi-date processing
 
 **Key Features:**
-- Date isolation (separate subdirectories per date, configurable database paths)
+- Date isolation (separate subdirectories per date, relative db paths maintain isolation)
 - Multi-process tracking (key → process_name → data)
 - Automatic Parquet export for analytics
 - Each date can run independently
+
+**Note**: Use relative database paths (e.g., `"data.duckdb"`) to maintain date isolation. Absolute paths bypass isolation and can mix data across dates.
 
 **Example:**
 ```python
