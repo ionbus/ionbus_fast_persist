@@ -58,13 +58,14 @@ if __name__ == "__main__":
         print("  ✗ FAILED: No data recovered")
         success = False
     else:
-        # Check timestamp
+        # Check timestamp (now a datetime object)
         recovered_ts = result.get("timestamp")
-        if recovered_ts == custom_timestamp:
+        expected_dt = dt.datetime.fromisoformat(custom_timestamp.replace("Z", "+00:00"))
+        if recovered_ts == expected_dt:
             print(f"  ✓ Timestamp recovered: {recovered_ts}")
         else:
             print(
-                f"  ✗ FAILED: Expected timestamp {custom_timestamp}, "
+                f"  ✗ FAILED: Expected timestamp {expected_dt}, "
                 f"got {recovered_ts}"
             )
             success = False

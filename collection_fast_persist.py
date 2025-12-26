@@ -15,6 +15,7 @@ from typing import Any
 
 from fast_persist_common import (
     StorageKeys,
+    normalize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
     setup_logger,
@@ -365,6 +366,12 @@ class CollectionFastPersist:
             else:
                 data_dict = data
 
+            # Normalize all datetime fields to timezone-aware datetime
+            data_dict = normalize_datetime_fields(data_dict)
+
+            # Parse timestamp to timezone-aware datetime
+            timestamp = parse_timestamp(timestamp)
+
             # Determine value type and extract
             if value_int is not None:
                 value = value_int
@@ -430,8 +437,14 @@ class CollectionFastPersist:
                             timestamp = record.get("timestamp")
                             username = record.get("username")
 
+                            # Normalize all datetime fields to timezone-aware datetime
+                            normalized_data = normalize_datetime_fields(data)
+
+                            # Parse timestamp to timezone-aware datetime
+                            timestamp = parse_timestamp(timestamp)
+
                             # Merge metadata into data (same as store())
-                            data_with_metadata = dict(data)
+                            data_with_metadata = dict(normalized_data)
                             data_with_metadata["value"] = value
                             if timestamp is not None:
                                 data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
@@ -533,7 +546,9 @@ class CollectionFastPersist:
             if timestamp is None:
                 timestamp = data.get(StorageKeys.TIMESTAMP)
             if timestamp is None:
-                timestamp = dt.datetime.now().isoformat()
+                timestamp = dt.datetime.now(dt.timezone.utc)
+            # Normalize to timezone-aware datetime
+            timestamp = parse_timestamp(timestamp)
 
             # Extract username: parameter > data field > None
             if username is None:
@@ -542,8 +557,11 @@ class CollectionFastPersist:
             # Load collection if not already in cache
             self._load_collection(key, collection_name)
 
+            # Normalize all datetime fields in user data to timezone-aware datetime
+            normalized_data = normalize_datetime_fields(data)
+
             # Add value, timestamp, and username to data dict (for cache)
-            data_with_value = dict(data)
+            data_with_value = dict(normalized_data)
             data_with_value["value"] = value
             data_with_value[StorageKeys.TIMESTAMP] = timestamp
             if username is not None:
@@ -1039,9 +1057,10 @@ class CollectionFastPersist:
                         data = record["data"]
                         value = record.get("value")
                         username = record.get("username")
-                        timestamp = parse_timestamp(
-                            record.get("timestamp")
-                        )
+                        timestamp = parse_timestamp(record.get("timestamp"))
+
+                        # Normalize all datetime fields to timezone-aware datetime
+                        data = normalize_datetime_fields(data)
 
                         # Determine value columns
                         value_int = None
@@ -1094,17 +1113,21 @@ class CollectionFastPersist:
                             ),
                         )
 
-                        # Update cache
+                        # Update cache with metadata (same as store())
                         if key not in self.cache:
                             self.cache[key] = {}
                         if collection_name not in self.cache[key]:
                             self.cache[key][collection_name] = {}
 
-                        data_with_value = dict(data)
-                        data_with_value["value"] = value
+                        data_with_metadata = dict(data)
+                        data_with_metadata["value"] = value
+                        if timestamp is not None:
+                            data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                        if username is not None:
+                            data_with_metadata[StorageKeys.USERNAME] = username
                         self.cache[key][collection_name][
                             item_name
-                        ] = data_with_value
+                        ] = data_with_metadata
 
                         records_recovered += 1
 
