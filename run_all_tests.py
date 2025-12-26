@@ -80,6 +80,18 @@ def main():
         ),
         # Specific feature tests
         (
+            "dated_fast_persist: Data persistence (no DROP TABLE)",
+            [python_cmd, "test_data_persistence.py"],
+        ),
+        (
+            "dated_fast_persist: timestamp/username parameters",
+            [python_cmd, "test_timestamp_username_params.py"],
+        ),
+        (
+            "dated_fast_persist: WAL metadata recovery",
+            [python_cmd, "test_wal_metadata_recovery.py"],
+        ),
+        (
             "collection_fast_persist: History retention",
             [python_cmd, "test_history_retention.py"],
         ),

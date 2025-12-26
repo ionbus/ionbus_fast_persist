@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fast_persist_common import StorageKeys, parse_timestamp, setup_logger
+from fast_persist_common import (
+    StorageKeys,
+    parse_timestamp,
+    serialize_to_json,
+    setup_logger,
+)
 
 logger = setup_logger("collection_fast_persist")
 
@@ -422,6 +427,16 @@ class CollectionFastPersist:
                             item_name = record.get("item_name", "")
                             data = record["data"]
                             value = record.get("value")
+                            timestamp = record.get("timestamp")
+                            username = record.get("username")
+
+                            # Merge metadata into data (same as store())
+                            data_with_metadata = dict(data)
+                            data_with_metadata["value"] = value
+                            if timestamp is not None:
+                                data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                            if username is not None:
+                                data_with_metadata[StorageKeys.USERNAME] = username
 
                             # Update nested in-memory cache
                             if key not in self.cache:
@@ -429,9 +444,7 @@ class CollectionFastPersist:
                             if collection_name not in self.cache[key]:
                                 self.cache[key][collection_name] = {}
 
-                            # Add value to data
-                            data["value"] = value
-                            self.cache[key][collection_name][item_name] = data
+                            self.cache[key][collection_name][item_name] = data_with_metadata
 
                             # Update nested pending_writes (append to list)
                             if key not in self.pending_writes:
@@ -451,7 +464,7 @@ class CollectionFastPersist:
                             # Append this update to the list
                             self.pending_writes[key][collection_name][
                                 item_name
-                            ].append(data)
+                            ].append(data_with_metadata)
 
                             # Track modification
                             self.modified_records.add(
@@ -719,7 +732,7 @@ class CollectionFastPersist:
                                         key,
                                         coll_name,
                                         item_name,
-                                        json.dumps(data_without_value),
+                                        serialize_to_json(data_without_value),
                                         value_int,
                                         value_float,
                                         value_string,
@@ -759,7 +772,7 @@ class CollectionFastPersist:
             except Exception as e:
                 logger.error(f"Error flushing to DuckDB: {e}")
                 self.history_conn.execute("ROLLBACK")
-                # Restore failed writes
+                # Restore failed writes by prepending to existing lists
                 with self.write_lock:
                     for key, coll_dict in writes_to_flush.items():
                         if key not in self.pending_writes:
@@ -767,9 +780,15 @@ class CollectionFastPersist:
                         for coll_name, item_dict in coll_dict.items():
                             if coll_name not in self.pending_writes[key]:
                                 self.pending_writes[key][coll_name] = {}
-                            self.pending_writes[key][coll_name].update(
-                                item_dict
-                            )
+                            for item_name, failed_list in item_dict.items():
+                                if item_name in self.pending_writes[key][coll_name]:
+                                    # Prepend failed writes before newer ones
+                                    self.pending_writes[key][coll_name][item_name] = (
+                                        failed_list + self.pending_writes[key][coll_name][item_name]
+                                    )
+                                else:
+                                    # No newer writes, just restore
+                                    self.pending_writes[key][coll_name][item_name] = failed_list
 
     def _update_latest_table(self):
         """Update latest values table with all modified records."""
