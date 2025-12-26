@@ -99,12 +99,6 @@ class WALDuckDBStorage:
         """Initialize DuckDB connection and schema"""
         self.conn = duckdb.connect(self.db_path)
 
-        # Check if old schema exists and drop it
-        try:
-            self.conn.execute("DROP TABLE IF EXISTS storage")
-        except Exception:
-            pass
-
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS storage (
                 key VARCHAR NOT NULL,
@@ -252,23 +246,32 @@ class WALDuckDBStorage:
             if process_name is None:
                 process_name = data.get(StorageKeys.PROCESS_NAME, "")
 
-            # Extract timestamp: parameter > data field > None
+            # Extract timestamp: parameter > data field > current time
             if timestamp is None:
                 timestamp = data.get(StorageKeys.TIMESTAMP)
+            if timestamp is None:
+                timestamp = dt.datetime.now().isoformat()
 
             # Extract username: parameter > data field > None
             if username is None:
                 username = data.get(StorageKeys.USERNAME)
 
+            # Add timestamp and username to data dict (for cache/storage)
+            data_with_metadata = dict(data)
+            data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+            if username is not None:
+                data_with_metadata[StorageKeys.USERNAME] = username
+            data_with_metadata[StorageKeys.PROCESS_NAME] = process_name
+
             # Update nested in-memory cache immediately
             if key not in self.cache:
                 self.cache[key] = {}
-            self.cache[key][process_name] = data
+            self.cache[key][process_name] = data_with_metadata
 
             # Update nested pending_writes
             if key not in self.pending_writes:
                 self.pending_writes[key] = {}
-            self.pending_writes[key][process_name] = data
+            self.pending_writes[key][process_name] = data_with_metadata
 
             # Initialize WAL if needed
             if self.current_wal_file is None:
@@ -280,7 +283,7 @@ class WALDuckDBStorage:
                 "process_name": process_name,
                 "data": data,
                 "username": username,
-                "timestamp": dt.datetime.now().isoformat(),
+                "timestamp": timestamp,
             }
             wal_entry = json.dumps(record) + "\n"
             wal_bytes = wal_entry.encode("utf-8")
