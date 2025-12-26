@@ -772,6 +772,7 @@ The storage system is thread-safe with the following guarantees:
 - Single-node only (no distributed support)
 - Key-based access only (no complex queries on cached data)
 - Dictionary/JSON values only
+- **Automatic datetime conversion**: ISO datetime strings in user data are automatically converted to timezone-aware `datetime.datetime` objects in memory. If you need to preserve datetime values as strings, wrap them in a different structure or use a non-ISO format
 
 ## License
 
