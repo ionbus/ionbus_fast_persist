@@ -649,6 +649,14 @@ If your application crashed or was terminated abnormally, the lock file may rema
 
 **Note**: Lock files are automatically removed on clean shutdown via the `close()` method. Always call `close()` when your application exits normally, or use a context manager to ensure cleanup.
 
+## Limitations
+
+- All data must fit in memory (lazy-loaded collections)
+- Single-node only (no distributed support)
+- Key/collection/item hierarchy access only (no complex queries on cached data)
+- Dictionary/JSON values only
+- **Automatic datetime conversion**: ISO datetime strings in user data are automatically converted to timezone-aware `datetime.datetime` objects in memory. If you need to preserve datetime values as strings, wrap them in a different structure or use a non-ISO format
+
 ## Testing
 
 ### Basic Functional Test

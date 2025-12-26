@@ -1062,13 +1062,20 @@ class CollectionFastPersist:
                         # Normalize all datetime fields to timezone-aware datetime
                         data = normalize_datetime_fields(data)
 
-                        # Merge metadata into data dict (same as store())
+                        # Merge metadata into data dict for cache (same as store())
                         data_with_metadata = dict(data)
                         data_with_metadata["value"] = value
                         if timestamp is not None:
                             data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
                         if username is not None:
                             data_with_metadata[StorageKeys.USERNAME] = username
+
+                        # Remove value from data before storing as JSON (same as flush)
+                        data_without_value = {
+                            k: v
+                            for k, v in data_with_metadata.items()
+                            if k != "value"
+                        }
 
                         # Determine value columns
                         value_int = None
@@ -1095,7 +1102,7 @@ class CollectionFastPersist:
                         current_version = result[0] if result else 0
 
                         # Insert into history DB (append new version)
-                        # Store enriched data with metadata
+                        # Store data WITHOUT value (value goes in typed columns)
                         self.history_conn.execute(
                             """
                             INSERT INTO storage_history
@@ -1109,13 +1116,13 @@ class CollectionFastPersist:
                                 key,
                                 collection_name,
                                 item_name,
-                                serialize_to_json(data_with_metadata),
+                                serialize_to_json(data_without_value),
                                 value_int,
                                 value_float,
                                 value_string,
                                 timestamp,
-                                data_with_metadata.get(StorageKeys.STATUS),
-                                data_with_metadata.get(StorageKeys.STATUS_INT),
+                                data_without_value.get(StorageKeys.STATUS),
+                                data_without_value.get(StorageKeys.STATUS_INT),
                                 username,
                                 dt.datetime.now(),
                                 current_version + 1,
