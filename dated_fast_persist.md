@@ -501,10 +501,12 @@ Initialize the storage system with date-based isolation.
 - `config`: Optional WALConfig for customization
 
 **Date-Based Storage Isolation:**
-- Each date gets its own subdirectory for both WAL files and DuckDB
-- Directory structure: `{base_dir}/{YYYY-MM-DD}/` for WAL files
-- Database path: `{db_dir}/{YYYY-MM-DD}/{db_name}` for DuckDB
-- This allows running multiple dates concurrently in separate processes
+- Each date gets its own subdirectory for WAL files: `{base_dir}/{YYYY-MM-DD}/`
+- Database path handling:
+  - **Relative paths** (e.g., `"data.duckdb"` or `"db/data.duckdb"`): Placed under `{base_dir}/{YYYY-MM-DD}/{db_path}` maintaining date isolation
+  - **Absolute paths** (e.g., `"/shared/data.duckdb"`): Used as-is, bypassing date isolation
+- **Warning**: Using absolute paths breaks date isolation - avoid reusing the same absolute path across multiple dates
+- Date isolation allows running multiple dates concurrently in separate processes
 
 #### `store(key: str, data: dict[str, Any], process_name: str | None = None, timestamp: str | dt.datetime | None = None, username: str | None = None)`
 

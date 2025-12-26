@@ -349,7 +349,7 @@ class WALDuckDBStorage:
                 "username": username,
                 "timestamp": timestamp,
             }
-            wal_entry = json.dumps(record) + "\n"
+            wal_entry = serialize_to_json(record) + "\n"
             wal_bytes = wal_entry.encode("utf-8")
 
             if not self.current_wal_file:

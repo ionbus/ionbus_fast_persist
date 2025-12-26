@@ -28,3 +28,5 @@ wal_storage
 2025-* 
 collection_storage 
 crash_test_collection 
+collection_test_storage 
+test_history_retention 

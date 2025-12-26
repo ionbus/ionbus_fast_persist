@@ -585,7 +585,7 @@ class CollectionFastPersist:
                 "username": username,
                 "timestamp": timestamp,
             }
-            wal_entry = json.dumps(record) + "\n"
+            wal_entry = serialize_to_json(record) + "\n"
             wal_bytes = wal_entry.encode("utf-8")
 
             if not self.current_wal_file:
@@ -841,7 +841,7 @@ class CollectionFastPersist:
                         key,
                         collection_name,
                         item_name,
-                        json.dumps(data_without_value),
+                        serialize_to_json(data_without_value),
                         value_int,
                         value_float,
                         value_string,
