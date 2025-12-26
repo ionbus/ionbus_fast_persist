@@ -41,7 +41,7 @@ This repository provides two persistence solutions, each optimized for different
 - Concurrent multi-date processing
 
 **Key Features:**
-- Complete date isolation (separate subdirectories and databases per date)
+- Date isolation (separate subdirectories per date, configurable database paths)
 - Multi-process tracking (key → process_name → data)
 - Automatic Parquet export for analytics
 - Each date can run independently
