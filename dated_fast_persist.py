@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fast_persist_common import StorageKeys, parse_timestamp, setup_logger
+from fast_persist_common import (
+    StorageKeys,
+    parse_timestamp,
+    serialize_to_json,
+    setup_logger,
+)
 
 logger = setup_logger("dated_fast_persist")
 
@@ -58,12 +63,15 @@ class WALDuckDBStorage:
         # Create date-specific directory (don't modify config.base_dir!)
         self.wal_dir = os.path.join(self.config.base_dir, self.date_str)
 
-        # Create date-specific database path (in same dir as WAL files)
-        db_name = os.path.basename(db_path)
-        self.db_path = os.path.join(self.wal_dir, db_name)
+        # Handle database path: if absolute, use as-is; if relative, place under wal_dir
+        if os.path.isabs(db_path):
+            self.db_path = db_path
+        else:
+            self.db_path = os.path.join(self.wal_dir, db_path)
 
-        # Create date-specific storage directories
+        # Create directories for both WAL and database
         Path(self.wal_dir).mkdir(parents=True, exist_ok=True)
+        Path(os.path.dirname(self.db_path)).mkdir(parents=True, exist_ok=True)
 
         # Threading primitives
         self.write_lock = threading.Lock()
@@ -218,16 +226,26 @@ class WALDuckDBStorage:
                             key = record["key"]
                             process_name = record.get("process_name", "")
                             data = record["data"]
+                            timestamp = record.get("timestamp")
+                            username = record.get("username")
+
+                            # Merge metadata into data (same as store())
+                            data_with_metadata = dict(data)
+                            if timestamp is not None:
+                                data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                            if username is not None:
+                                data_with_metadata[StorageKeys.USERNAME] = username
+                            data_with_metadata[StorageKeys.PROCESS_NAME] = process_name
 
                             # Update nested in-memory cache
                             if key not in self.cache:
                                 self.cache[key] = {}
-                            self.cache[key][process_name] = data
+                            self.cache[key][process_name] = data_with_metadata
 
                             # Update nested pending_writes
                             if key not in self.pending_writes:
                                 self.pending_writes[key] = {}
-                            self.pending_writes[key][process_name] = data
+                            self.pending_writes[key][process_name] = data_with_metadata
 
                 if records:
                     logger.info(
@@ -421,9 +439,7 @@ class WALDuckDBStorage:
                             (
                                 key,
                                 process_name,
-                                json.dumps(data)
-                                if not isinstance(data, str)
-                                else data,
+                                serialize_to_json(data),
                                 timestamp,
                                 status,
                                 status_int,

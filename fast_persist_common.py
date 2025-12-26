@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import sys
 
@@ -37,6 +38,29 @@ def setup_logger(name: str) -> logging.Logger:
     """
     logging.basicConfig(level=logging.INFO)
     return logging.getLogger(name)
+
+
+def serialize_to_json(data: dict | str) -> str:
+    """Safely serialize data to JSON, converting datetime objects to ISO strings.
+
+    Args:
+        data: Dictionary or string to serialize
+
+    Returns:
+        JSON string representation
+    """
+    if isinstance(data, str):
+        return data
+
+    def datetime_handler(obj):
+        """Convert datetime objects to ISO format strings."""
+        if isinstance(obj, dt.datetime):
+            return obj.isoformat()
+        raise TypeError(
+            f"Object of type {type(obj).__name__} is not JSON serializable"
+        )
+
+    return json.dumps(data, default=datetime_handler)
 
 
 def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
