@@ -97,7 +97,7 @@ class CollectionFastPersist:
 
         # Pending writes with same structure
         self.pending_writes: dict[
-            str, dict[str, dict[str, dict[str, Any]]]
+            str, dict[str, dict[str, list[dict[str, Any]]]]
         ] = {}
 
         # Change tracking: set of (key, collection_name, item_name) tuples
@@ -136,13 +136,49 @@ class CollectionFastPersist:
         self.flush_thread.start()
 
     def _acquire_lock(self):
-        """Acquire lock file to enforce single instance per date."""
+        """Acquire lock file to enforce single instance per date.
+
+        Automatically cleans up stale locks from crashed processes.
+        """
         if self.lock_file_path.exists():
-            raise CollectionFastPersistError(
-                f"Another instance is already running for date "
-                f"{self.date_str}. "
-                f"Lock file exists at {self.lock_file_path}"
-            )
+            # Check if lock is stale (older than 5 seconds + has WAL files)
+            # A fresh lock suggests another process just started
+            try:
+                lock_age = time.time() - self.lock_file_path.stat().st_mtime
+                has_wal = bool(self._get_wal_files())
+
+                # If lock is fresh (< 2 seconds old), another instance running
+                if lock_age < 2:
+                    raise CollectionFastPersistError(
+                        f"Another instance is already running for date "
+                        f"{self.date_str}. "
+                        f"Lock file exists at {self.lock_file_path}"
+                    )
+
+                # Stale lock detected - check if crash recovery needed
+                if has_wal:
+                    logger.warning(
+                        f"Stale lock detected (age: {lock_age:.1f}s) "
+                        f"with WAL files - likely crashed process. "
+                        f"Removing stale lock and will recover from WAL."
+                    )
+                else:
+                    logger.warning(
+                        f"Stale lock detected (age: {lock_age:.1f}s) "
+                        f"with no WAL files. Removing stale lock."
+                    )
+
+                # Remove stale lock
+                self.lock_file_path.unlink()
+
+            except CollectionFastPersistError:
+                # Re-raise instance violation
+                raise
+            except Exception as e:
+                logger.error(f"Error checking lock file: {e}")
+                raise CollectionFastPersistError(
+                    f"Failed to check lock file: {e}"
+                )
 
         # Create lock file
         try:
@@ -397,7 +433,7 @@ class CollectionFastPersist:
                             data["value"] = value
                             self.cache[key][collection_name][item_name] = data
 
-                            # Update nested pending_writes
+                            # Update nested pending_writes (append to list)
                             if key not in self.pending_writes:
                                 self.pending_writes[key] = {}
                             if (
@@ -405,9 +441,17 @@ class CollectionFastPersist:
                                 not in self.pending_writes[key]
                             ):
                                 self.pending_writes[key][collection_name] = {}
+                            if (
+                                item_name
+                                not in self.pending_writes[key][collection_name]
+                            ):
+                                self.pending_writes[key][collection_name][
+                                    item_name
+                                ] = []
+                            # Append this update to the list
                             self.pending_writes[key][collection_name][
                                 item_name
-                            ] = data
+                            ].append(data)
 
                             # Track modification
                             self.modified_records.add(

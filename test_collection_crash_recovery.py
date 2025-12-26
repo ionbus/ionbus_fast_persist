@@ -159,15 +159,16 @@ def stage2_recover_and_verify():
         retain_days=3,
     )
 
-    # Clean up stale lock file from crash
+    # Check for stale lock file (should be auto-cleaned now)
     base_path = Path(config.base_dir)
     date_str = dt.date.today().isoformat()
     lock_file = base_path / f".lock_{date_str}"
     if lock_file.exists():
-        print(f"\nCleaning up stale lock file from crash: {lock_file}")
-        lock_file.unlink()
+        print(f"\nStale lock file detected: {lock_file}")
+        print("  (Will be automatically removed during initialization)")
 
     print("\nInitializing storage (will trigger recovery)...")
+    print("  - Automatic stale lock detection enabled")
     storage = CollectionFastPersist(dt.date.today(), config=config)
 
     # Check recovery stats

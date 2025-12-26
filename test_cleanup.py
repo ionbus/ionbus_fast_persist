@@ -40,6 +40,8 @@ def cleanup_test_artifacts(verbose: bool = True) -> int:
         "./crash_test_output",
         "./collection_test_storage",
         "./crash_test_collection",
+        "./test_history_retention",
+        "./test_process_name_none",
     ]
 
     removed_count = 0
