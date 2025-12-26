@@ -13,27 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fast_persist_common import StorageKeys, setup_logger
+from fast_persist_common import StorageKeys, parse_timestamp, setup_logger
 
 logger = setup_logger("dated_fast_persist")
-
-
-def _parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
-    """Convert timestamp string to datetime object.
-
-    Handles ISO 8601 format with or without timezone.
-    Returns None if input is None.
-    """
-    if ts is None:
-        return None
-    if isinstance(ts, dt.datetime):
-        return ts
-    # Parse ISO 8601 string - fromisoformat handles timezone info
-    try:
-        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        logger.warning(f"Could not parse timestamp: {ts}")
-        return None
 
 
 @dataclass
@@ -383,7 +365,7 @@ class WALDuckDBStorage:
                             process_name = ""
 
                         # Extract special fields from data
-                        timestamp = _parse_timestamp(
+                        timestamp = parse_timestamp(
                             data.get(StorageKeys.TIMESTAMP)
                         )
                         status = data.get(StorageKeys.STATUS)
