@@ -1081,7 +1081,7 @@ class CollectionFastPersist:
                                 key,
                                 collection_name,
                                 item_name,
-                                json.dumps(data),
+                                serialize_to_json(data),
                                 value_int,
                                 value_float,
                                 value_string,
