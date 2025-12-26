@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fast_persist_common import StorageKeys, setup_logger
+from fast_persist_common import StorageKeys, parse_timestamp, setup_logger
 
 logger = setup_logger("collection_fast_persist")
 
@@ -22,24 +22,6 @@ class CollectionFastPersistError(Exception):
     """Custom exception for collection_fast_persist errors"""
 
     pass
-
-
-def _parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
-    """Convert timestamp string to datetime object.
-
-    Handles ISO 8601 format with or without timezone.
-    Returns None if input is None.
-    """
-    if ts is None:
-        return None
-    if isinstance(ts, dt.datetime):
-        return ts
-    # Parse ISO 8601 string - fromisoformat handles timezone info
-    try:
-        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        logger.warning(f"Could not parse timestamp: {ts}")
-        return None
 
 
 @dataclass
@@ -637,7 +619,7 @@ class CollectionFastPersist:
                     for coll_name, item_dict in coll_dict.items():
                         for item_name, data in item_dict.items():
                             # Extract special fields
-                            timestamp = _parse_timestamp(
+                            timestamp = parse_timestamp(
                                 data.get(StorageKeys.TIMESTAMP)
                             )
                             status = data.get(StorageKeys.STATUS)
@@ -749,7 +731,7 @@ class CollectionFastPersist:
                 data = self.cache[key][collection_name][item_name]
 
                 # Extract special fields
-                timestamp = _parse_timestamp(
+                timestamp = parse_timestamp(
                     data.get(StorageKeys.TIMESTAMP)
                 )
                 status = data.get(StorageKeys.STATUS)
@@ -977,7 +959,7 @@ class CollectionFastPersist:
                         data = record["data"]
                         value = record.get("value")
                         username = record.get("username")
-                        timestamp = _parse_timestamp(
+                        timestamp = parse_timestamp(
                             record.get("timestamp")
                         )
 
