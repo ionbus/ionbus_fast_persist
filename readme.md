@@ -162,10 +162,10 @@ Both solutions use a hybrid WAL + DuckDB architecture:
 └──────┬──────┘
        │
        ▼
-┌─────────────────┐     fsync        ┌──────────────┐
-│  In-Memory      │────────────────▶│  WAL Files   │
-│  Cache          │                  │  (*.jsonl)   │
-└─────────────────┘                  └──────────────┘
+┌─────────────────┐   fsync   ┌──────────────┐
+│  In-Memory      │──────────>│  WAL Files   │
+│  Cache          │           │  (*.jsonl)   │
+└─────────────────┘           └──────────────┘
        │
        │ (background batching)
        ▼
