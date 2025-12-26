@@ -45,11 +45,13 @@ def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
     Handles ISO 8601 format with or without timezone.
     Returns None if input is None.
 
+    If timestamp string has no timezone info, assumes UTC.
+
     Args:
         ts: Timestamp as string, datetime object, or None
 
     Returns:
-        datetime object or None
+        datetime object (timezone-aware) or None
     """
     if ts is None:
         return None
@@ -57,7 +59,11 @@ def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
         return ts
     # Parse ISO 8601 string - fromisoformat handles timezone info
     try:
-        return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        parsed = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        # If naive (no timezone), assume UTC
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed
     except (ValueError, AttributeError):
         logger.warning(f"Could not parse timestamp: {ts}")
         return None
