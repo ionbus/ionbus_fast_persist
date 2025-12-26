@@ -594,6 +594,23 @@ CollectionFastPersistError: Another instance is already running for date 2025-12
 Lock file exists at collection_storage/.lock_2025-12-24
 ```
 
+**Handling Stale Lock Files:**
+
+If your application crashed or was terminated abnormally, the lock file may remain even though no instance is running. To recover:
+
+1. **Verify no instance is running**: Ensure no other process is using this storage
+2. **Manually remove the lock file**:
+   ```bash
+   # Unix/Linux/Mac:
+   rm collection_storage/.lock_2025-12-24
+
+   # Windows:
+   del collection_storage\.lock_2025-12-24
+   ```
+3. **Restart your application**: The lock file will be recreated automatically
+
+**Note**: Lock files are automatically removed on clean shutdown via the `close()` method. Always call `close()` when your application exits normally, or use a context manager to ensure cleanup.
+
 ## Testing
 
 ### Basic Functional Test
