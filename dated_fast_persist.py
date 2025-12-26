@@ -15,7 +15,6 @@ from typing import Any
 
 from fast_persist_common import (
     StorageKeys,
-    deserialize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
     setup_logger,
@@ -229,9 +228,6 @@ class WALDuckDBStorage:
                             data = record["data"]
                             timestamp = record.get("timestamp")
                             username = record.get("username")
-
-                            # Deserialize datetime/date strings back to objects
-                            data = deserialize_datetime_fields(data)
 
                             # Merge metadata into data (same as store())
                             data_with_metadata = dict(data)
