@@ -1062,6 +1062,14 @@ class CollectionFastPersist:
                         # Normalize all datetime fields to timezone-aware datetime
                         data = normalize_datetime_fields(data)
 
+                        # Merge metadata into data dict (same as store())
+                        data_with_metadata = dict(data)
+                        data_with_metadata["value"] = value
+                        if timestamp is not None:
+                            data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                        if username is not None:
+                            data_with_metadata[StorageKeys.USERNAME] = username
+
                         # Determine value columns
                         value_int = None
                         value_float = None
@@ -1087,6 +1095,7 @@ class CollectionFastPersist:
                         current_version = result[0] if result else 0
 
                         # Insert into history DB (append new version)
+                        # Store enriched data with metadata
                         self.history_conn.execute(
                             """
                             INSERT INTO storage_history
@@ -1100,13 +1109,13 @@ class CollectionFastPersist:
                                 key,
                                 collection_name,
                                 item_name,
-                                serialize_to_json(data),
+                                serialize_to_json(data_with_metadata),
                                 value_int,
                                 value_float,
                                 value_string,
                                 timestamp,
-                                data.get(StorageKeys.STATUS),
-                                data.get(StorageKeys.STATUS_INT),
+                                data_with_metadata.get(StorageKeys.STATUS),
+                                data_with_metadata.get(StorageKeys.STATUS_INT),
                                 username,
                                 dt.datetime.now(),
                                 current_version + 1,
@@ -1119,12 +1128,6 @@ class CollectionFastPersist:
                         if collection_name not in self.cache[key]:
                             self.cache[key][collection_name] = {}
 
-                        data_with_metadata = dict(data)
-                        data_with_metadata["value"] = value
-                        if timestamp is not None:
-                            data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
-                        if username is not None:
-                            data_with_metadata[StorageKeys.USERNAME] = username
                         self.cache[key][collection_name][
                             item_name
                         ] = data_with_metadata

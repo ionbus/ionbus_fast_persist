@@ -143,8 +143,10 @@ def _normalize_single_value(value):
     return value
 
 
-def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
-    """Convert timestamp string to datetime object.
+def parse_timestamp(
+    ts: str | dt.datetime | dt.date | None,
+) -> dt.datetime | None:
+    """Convert timestamp string/date/datetime to datetime object.
 
     Handles ISO 8601 format with or without timezone.
     Returns None if input is None.
@@ -152,7 +154,7 @@ def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
     If timestamp string has no timezone info, assumes UTC.
 
     Args:
-        ts: Timestamp as string, datetime object, or None
+        ts: Timestamp as string, date, datetime object, or None
 
     Returns:
         datetime object (timezone-aware) or None
@@ -164,6 +166,9 @@ def parse_timestamp(ts: str | dt.datetime | None) -> dt.datetime | None:
         if ts.tzinfo is None:
             return ts.replace(tzinfo=dt.timezone.utc)
         return ts
+    if isinstance(ts, dt.date):
+        # Convert date to datetime at midnight UTC
+        return dt.datetime.combine(ts, dt.time(0, 0, 0), tzinfo=dt.timezone.utc)
     # Parse ISO 8601 string - fromisoformat handles timezone info
     try:
         parsed = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
