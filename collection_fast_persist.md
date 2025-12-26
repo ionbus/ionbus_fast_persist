@@ -596,6 +596,8 @@ Lock file exists at collection_storage/.lock_2025-12-24
 
 ## Testing
 
+### Basic Functional Test
+
 See [test_collection_fast_persist.py](test_collection_fast_persist.py) for comprehensive examples covering:
 - Typed value storage and retrieval
 - Type changes
@@ -605,6 +607,59 @@ See [test_collection_fast_persist.py](test_collection_fast_persist.py) for compr
 
 ```bash
 python test_collection_fast_persist.py
+```
+
+### Crash Recovery Test
+
+Run the three-stage crash recovery test to verify WAL-based durability:
+
+**Stage 1: Write data and simulate crash**
+```bash
+python test_collection_crash_recovery.py 1
+```
+
+This stage:
+- Writes 24 records across user profiles, classroom seating, and forms
+- Tests typed values (int, float, string)
+- Leaves WAL files with unflushed data
+- Simulates crash without clean shutdown
+
+**Stage 2: Recover and verify**
+```bash
+python test_collection_crash_recovery.py 2
+```
+
+This stage:
+- Automatically recovers all data from WAL files
+- Verifies data integrity and type preservation
+- Tests database health checks
+- Performs clean shutdown with backup creation
+- Validates backup files
+
+**Stage 3: Test manual reconstruction**
+```bash
+python test_collection_crash_recovery.py 3
+```
+
+This stage:
+- Tests `rebuild_latest_from_history()` function
+- Verifies data remains accessible after reconstruction
+
+**Cleaning up test artifacts:**
+
+Tests create storage directories that persist between runs. Use the cleanup script:
+
+```bash
+python test_cleanup.py
+```
+
+Or manually remove directories:
+```bash
+# Unix/Linux/Mac:
+rm -rf ./collection_test_storage ./crash_test_collection
+
+# Windows:
+rmdir /s /q collection_test_storage crash_test_collection
 ```
 
 ## License
