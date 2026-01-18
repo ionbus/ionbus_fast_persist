@@ -1,0 +1,3 @@
+To both classes via their config files, I want to add the concept of extra schema. This will be a dictionary of columns to types. For every entry in this dictionary, I want the column of the appropriate type stored in the DuckDB database, and I want that same column available in the Parquet file if Parquet files are used. 
+
+The values for these extra columns should be in data with all of the other fields. If they are not there, then the value should be null. 
