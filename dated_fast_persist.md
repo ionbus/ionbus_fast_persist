@@ -83,6 +83,8 @@ and high-performance applications with date-based storage isolation:
 - **Parquet export**: Export all data to Hive-partitioned Parquet files
   for analytics and data warehousing. Automatically exports on clean
   shutdown when `parquet_path` is configured
+- **Extra schema support**: Define custom typed columns (via PyArrow type
+  names) that are stored in DuckDB and included in Parquet exports
 
 ## Installation
 
@@ -281,6 +283,79 @@ storage.export_to_parquet()  # Uses config.parquet_path
 storage.export_to_parquet("./custom_export")
 ```
 
+### Extra Schema (Custom Typed Columns)
+
+Define custom typed columns that are stored in DuckDB and included in
+Parquet exports. Values come from the `data` dict - if missing, they're NULL.
+
+```python
+import datetime as dt
+from dated_fast_persist import WALDuckDBStorage, WALConfig
+
+# Define extra columns using PyArrow type names
+config = WALConfig(
+    parquet_path="./data_export",
+    extra_schema={
+        "customer_id": "int64",
+        "price": "float64",
+        "is_active": "bool",
+        "notes": "string",
+    },
+)
+
+storage = WALDuckDBStorage(dt.date.today(), "data.duckdb", config)
+
+# Store data - extra schema values extracted from data dict
+storage.store(
+    "order_1",
+    {
+        "order_name": "Test Order",
+        "customer_id": 12345,       # → customer_id column (BIGINT)
+        "price": 99.99,             # → price column (DOUBLE)
+        "is_active": True,          # → is_active column (BOOLEAN)
+        "notes": "First order",     # → notes column (VARCHAR)
+    },
+    process_name="worker1",
+)
+
+# Missing extra schema values become NULL
+storage.store(
+    "order_2",
+    {
+        "order_name": "Partial",
+        "customer_id": 67890,
+        # price, is_active, notes are missing → NULL in DB
+    },
+    process_name="worker1",
+)
+
+storage.close()
+```
+
+**Supported PyArrow Types:**
+| PyArrow Type | DuckDB Type |
+|--------------|-------------|
+| `string` | VARCHAR |
+| `int64` | BIGINT |
+| `int32` | INTEGER |
+| `int16` | SMALLINT |
+| `int8` | TINYINT |
+| `uint64` | UBIGINT |
+| `uint32` | UINTEGER |
+| `uint16` | USMALLINT |
+| `uint8` | UTINYINT |
+| `float64` | DOUBLE |
+| `float32` | FLOAT |
+| `bool` | BOOLEAN |
+| `timestamp[us]`, `timestamp[ns]`, `timestamp[ms]`, `timestamp[s]` | TIMESTAMP |
+| `date32`, `date64` | DATE |
+
+**Important Notes:**
+- Extra schema only applies to newly created tables (no ALTER TABLE migrations)
+- Column names must not conflict with reserved names (`key`, `process_name`,
+  `data`, `timestamp`, `status`, `status_int`, `username`, `updated_at`, `version`)
+- Invalid column names or types raise `ExtraSchemaError` at initialization
+
 **Output Structure:** Data is partitioned by `process_name` and `date`:
 ```
 ./data_export/
@@ -314,6 +389,7 @@ storage.export_to_parquet("./custom_export")
 | `batch_size` | `1000` | Records before batch flush |
 | `duckdb_flush_interval_seconds` | `30` | Force flush interval |
 | `parquet_path` | `None` | Path for Hive-partitioned Parquet export |
+| `extra_schema` | `None` | Dict mapping column names to PyArrow type names |
 
 ## Date-Based Storage Isolation
 

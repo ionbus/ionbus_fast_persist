@@ -1,4 +1,5 @@
-"""Dated Fast Persist - Date-based persistent storage using DuckDB and Write-Ahead Logs (WAL)"""
+"""Dated Fast Persist - Date-based persistent storage using DuckDB and
+Write-Ahead Logs (WAL)"""
 
 from __future__ import annotations
 
@@ -6,7 +7,6 @@ import datetime as dt
 import duckdb
 import json
 import os
-import pandas as pd
 import threading
 import time
 from dataclasses import dataclass
@@ -14,11 +14,16 @@ from pathlib import Path
 from typing import Any
 
 from fast_persist_common import (
+    RESERVED_COLUMNS_DATED,
     StorageKeys,
+    build_extra_columns_sql,
+    extract_extra_values,
+    get_extra_column_names,
     normalize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
     setup_logger,
+    validate_extra_schema,
 )
 
 logger = setup_logger("dated_fast_persist")
@@ -34,6 +39,7 @@ class WALConfig:
     batch_size: int = 1000  # Records before triggering batch write
     duckdb_flush_interval_seconds: int = 30  # Force flush every 30 seconds
     parquet_path: str | None = None  # Path for Hive-partitioned parquet
+    extra_schema: dict[str, str] | None = None  # col_name -> PyArrow type
 
 
 class WALDuckDBStorage:
@@ -64,7 +70,8 @@ class WALDuckDBStorage:
         # Create date-specific directory (don't modify config.base_dir!)
         self.wal_dir = os.path.join(self.config.base_dir, self.date_str)
 
-        # Handle database path: if absolute, use as-is; if relative, place under wal_dir
+        # Handle database path: if absolute, use as-is; if relative, place
+        # under wal_dir
         if os.path.isabs(db_path):
             self.db_path = db_path
         else:
@@ -105,9 +112,15 @@ class WALDuckDBStorage:
 
     def _init_duckdb(self):
         """Initialize DuckDB connection and schema"""
+        # Validate extra_schema if provided
+        validate_extra_schema(self.config.extra_schema, RESERVED_COLUMNS_DATED)
+
         self.conn = duckdb.connect(self.db_path)
 
-        self.conn.execute("""
+        # Build extra columns SQL fragment
+        extra_cols_sql = build_extra_columns_sql(self.config.extra_schema)
+
+        self.conn.execute(f"""
             CREATE TABLE IF NOT EXISTS storage (
                 key VARCHAR NOT NULL,
                 process_name VARCHAR DEFAULT NULL,
@@ -117,7 +130,7 @@ class WALDuckDBStorage:
                 status_int INTEGER,
                 username VARCHAR,
                 updated_at TIMESTAMP,
-                version INTEGER DEFAULT 1,
+                version INTEGER DEFAULT 1{extra_cols_sql},
                 UNIQUE (key, process_name)
             )
         """)
@@ -161,13 +174,9 @@ class WALDuckDBStorage:
                 """)
                 # Drop old table and rename new one
                 self.conn.execute("DROP TABLE storage")
-                self.conn.execute(
-                    "ALTER TABLE storage_new RENAME TO storage"
-                )
+                self.conn.execute("ALTER TABLE storage_new RENAME TO storage")
                 self.conn.execute("COMMIT")
-                logger.info(
-                    "Migrated storage table to allow NULL process_name"
-                )
+                logger.info("Migrated storage table to allow NULL process_name")
             except Exception as e:
                 self.conn.execute("ROLLBACK")
                 logger.error(f"Migration failed: {e}")
@@ -233,7 +242,8 @@ class WALDuckDBStorage:
                             timestamp = record.get("timestamp")
                             username = record.get("username")
 
-                            # Normalize all datetime fields to timezone-aware datetime
+                            # Normalize all datetime fields to timezone-aware
+                            # datetime
                             normalized_data = normalize_datetime_fields(data)
 
                             # Parse timestamp to timezone-aware datetime
@@ -242,10 +252,16 @@ class WALDuckDBStorage:
                             # Merge metadata into data (same as store())
                             data_with_metadata = dict(normalized_data)
                             if timestamp is not None:
-                                data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                                data_with_metadata[StorageKeys.TIMESTAMP] = (
+                                    timestamp
+                                )
                             if username is not None:
-                                data_with_metadata[StorageKeys.USERNAME] = username
-                            data_with_metadata[StorageKeys.PROCESS_NAME] = process_name
+                                data_with_metadata[StorageKeys.USERNAME] = (
+                                    username
+                                )
+                            data_with_metadata[StorageKeys.PROCESS_NAME] = (
+                                process_name
+                            )
 
                             # Update nested in-memory cache
                             if key not in self.cache:
@@ -255,7 +271,9 @@ class WALDuckDBStorage:
                             # Update nested pending_writes
                             if key not in self.pending_writes:
                                 self.pending_writes[key] = {}
-                            self.pending_writes[key][process_name] = data_with_metadata
+                            self.pending_writes[key][process_name] = (
+                                data_with_metadata
+                            )
 
                 if records:
                     logger.info(
@@ -332,7 +350,8 @@ class WALDuckDBStorage:
             if username is None:
                 username = data.get(StorageKeys.USERNAME)
 
-            # Normalize all datetime fields in user data to timezone-aware datetime
+            # Normalize all datetime fields in user data to timezone-aware
+            # datetime
             normalized_data = normalize_datetime_fields(data)
 
             # Add timestamp and username to data dict (for cache/storage)
@@ -438,6 +457,9 @@ class WALDuckDBStorage:
 
         with self.flush_lock:
             try:
+                # Get extra column names for SQL building
+                extra_cols = get_extra_column_names(self.config.extra_schema)
+
                 # Prepare batch data with special field extraction
                 batch_data = []
                 for key, process_dict in writes_to_flush.items():
@@ -449,6 +471,11 @@ class WALDuckDBStorage:
                         status = data.get(StorageKeys.STATUS)
                         status_int = data.get(StorageKeys.STATUS_INT)
                         username = data.get(StorageKeys.USERNAME)
+
+                        # Extract extra column values
+                        extra_values = extract_extra_values(
+                            data, self.config.extra_schema
+                        )
 
                         batch_data.append(
                             (
@@ -462,6 +489,7 @@ class WALDuckDBStorage:
                                 dt.datetime.now(),
                                 key,
                                 process_name,
+                                extra_values,
                             )
                         )
 
@@ -498,29 +526,42 @@ class WALDuckDBStorage:
                     updated_at,
                     _key,
                     _process,
+                    extra_values,
                 ) in batch_data:
                     version = version_map[(key, process_name)]
-                    batch_with_versions.append(
-                        (
-                            key,
-                            process_name,
-                            data_json,
-                            timestamp,
-                            status,
-                            status_int,
-                            username,
-                            updated_at,
-                            version,
-                        )
-                    )
+                    row = [
+                        key,
+                        process_name,
+                        data_json,
+                        timestamp,
+                        status,
+                        status_int,
+                        username,
+                        updated_at,
+                        version,
+                    ] + extra_values
+                    batch_with_versions.append(tuple(row))
+
+                # Build column list for INSERT
+                base_cols = (
+                    "key, process_name, data, timestamp, status, "
+                    "status_int, username, updated_at, version"
+                )
+                if extra_cols:
+                    all_cols = base_cols + ", " + ", ".join(extra_cols)
+                else:
+                    all_cols = base_cols
+
+                # Build placeholders
+                num_cols = 9 + len(extra_cols)
+                placeholders = ", ".join(["?"] * num_cols)
 
                 # Use INSERT OR REPLACE for upsert behavior
                 self.conn.executemany(
-                    """
+                    f"""
                     INSERT OR REPLACE INTO storage
-                    (key, process_name, data, timestamp, status,
-                     status_int, username, updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ({all_cols})
+                    VALUES ({placeholders})
                     """,
                     batch_with_versions,
                 )
@@ -616,8 +657,16 @@ class WALDuckDBStorage:
                 "or set it in WALConfig"
             )
 
+        # Build extra columns for SELECT
+        extra_cols = get_extra_column_names(self.config.extra_schema)
+        extra_cols_sql = ""
+        if extra_cols:
+            extra_cols_sql = ",\n                " + ",\n                ".join(
+                extra_cols
+            )
+
         # Query all data from DuckDB with date column
-        query = """
+        query = f"""
             SELECT
                 key,
                 process_name,
@@ -627,7 +676,7 @@ class WALDuckDBStorage:
                 status_int,
                 username,
                 updated_at,
-                version,
+                version{extra_cols_sql},
                 ? as date
             FROM storage
         """

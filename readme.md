@@ -110,6 +110,7 @@ storage.store(
 | **Parquet Export** | Yes (Hive-partitioned) | No |
 | **Database Health** | No | Yes (automatic + manual) |
 | **Backups** | No | Yes (daily with retention) |
+| **Extra Schema** | Yes (DuckDB + Parquet) | Yes (DuckDB only) |
 
 ## Common Features
 
@@ -132,6 +133,8 @@ Both solutions share these core capabilities:
 ✅ **Special field support** (timestamp, status, username)
 
 ✅ **Automatic datetime normalization** (all timestamps are timezone-aware datetime objects)
+
+✅ **Extra schema support** (custom typed columns in DuckDB and Parquet)
 
 ## Timestamp and Date Handling
 
@@ -294,6 +297,7 @@ python test_collection_crash_recovery.py 3  # Manual reconstruction
 **Shared utilities:**
 ```bash
 python test_parse_timestamp.py              # Timezone handling
+python test_extra_schema.py                 # Extra schema feature
 ```
 
 **Cleaning up test artifacts:**
