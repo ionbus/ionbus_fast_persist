@@ -1,4 +1,5 @@
-"""Collection Fast Persist - Collection-based persistent storage using DuckDB and Write-Ahead Logs (WAL)"""
+"""Collection Fast Persist - Collection-based persistent storage using DuckDB
+and Write-Ahead Logs (WAL)"""
 
 from __future__ import annotations
 
@@ -14,11 +15,16 @@ from pathlib import Path
 from typing import Any
 
 from fast_persist_common import (
+    RESERVED_COLUMNS_COLLECTION,
     StorageKeys,
+    build_extra_columns_sql,
+    extract_extra_values,
+    get_extra_column_names,
     normalize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
     setup_logger,
+    validate_extra_schema,
 )
 
 logger = setup_logger("collection_fast_persist")
@@ -39,6 +45,7 @@ class CollectionConfig:
     batch_size: int = 1000
     duckdb_flush_interval_seconds: int = 30
     retain_days: int = 5  # Keep 5 days of backups
+    extra_schema: dict[str, str] | None = None  # col_name -> PyArrow type
 
 
 class CollectionFastPersist:
@@ -191,9 +198,7 @@ class CollectionFastPersist:
             self.lock_file_path.touch()
             logger.info(f"Acquired lock for date {self.date_str}")
         except Exception as e:
-            raise CollectionFastPersistError(
-                f"Failed to create lock file: {e}"
-            )
+            raise CollectionFastPersistError(f"Failed to create lock file: {e}")
 
     def _release_lock(self):
         """Release lock file."""
@@ -225,28 +230,27 @@ class CollectionFastPersist:
         try:
             # If connection provided, use it (already open)
             if conn is not None:
-                conn.execute(
-                    f"SELECT COUNT(*) FROM {table_name}"
-                ).fetchone()
+                conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
                 conn.execute("PRAGMA database_size").fetchone()
                 return True
 
             # Otherwise try read-only connection
             test_conn = duckdb.connect(str(db_path), read_only=True)
-            test_conn.execute(
-                f"SELECT COUNT(*) FROM {table_name}"
-            ).fetchone()
+            test_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
             test_conn.execute("PRAGMA database_size").fetchone()
             test_conn.close()
             return True
         except Exception as e:
-            logger.error(
-                f"Database health check failed for {db_path}: {e}"
-            )
+            logger.error(f"Database health check failed for {db_path}: {e}")
             return False
 
     def _init_duckdb(self):
         """Initialize DuckDB connections and schema for both databases."""
+        # Validate extra_schema if provided
+        validate_extra_schema(
+            self.config.extra_schema, RESERVED_COLUMNS_COLLECTION
+        )
+
         # Check health of both databases before opening
         history_healthy = self.check_database_health(
             self.history_db_path, "storage_history"
@@ -275,9 +279,12 @@ class CollectionFastPersist:
                 "history"
             )
 
+        # Build extra columns SQL fragment
+        extra_cols_sql = build_extra_columns_sql(self.config.extra_schema)
+
         # Initialize history database
         self.history_conn = duckdb.connect(str(self.history_db_path))
-        self.history_conn.execute("""
+        self.history_conn.execute(f"""
             CREATE TABLE IF NOT EXISTS storage_history (
                 key VARCHAR NOT NULL,
                 collection_name VARCHAR NOT NULL DEFAULT '',
@@ -291,13 +298,13 @@ class CollectionFastPersist:
                 status_int INTEGER,
                 username VARCHAR,
                 updated_at TIMESTAMP,
-                version INTEGER DEFAULT 1
+                version INTEGER DEFAULT 1{extra_cols_sql}
             )
         """)
 
         # Initialize latest values database
         self.latest_conn = duckdb.connect(str(self.latest_db_path))
-        self.latest_conn.execute("""
+        self.latest_conn.execute(f"""
             CREATE TABLE IF NOT EXISTS storage_latest (
                 key VARCHAR NOT NULL,
                 collection_name VARCHAR NOT NULL DEFAULT '',
@@ -311,7 +318,7 @@ class CollectionFastPersist:
                 status_int INTEGER,
                 username VARCHAR,
                 updated_at TIMESTAMP,
-                version INTEGER DEFAULT 1,
+                version INTEGER DEFAULT 1{extra_cols_sql},
                 PRIMARY KEY (key, collection_name, item_name)
             )
         """)
@@ -437,7 +444,8 @@ class CollectionFastPersist:
                             timestamp = record.get("timestamp")
                             username = record.get("username")
 
-                            # Normalize all datetime fields to timezone-aware datetime
+                            # Normalize all datetime fields to timezone-aware
+                            # datetime
                             normalized_data = normalize_datetime_fields(data)
 
                             # Parse timestamp to timezone-aware datetime
@@ -447,9 +455,13 @@ class CollectionFastPersist:
                             data_with_metadata = dict(normalized_data)
                             data_with_metadata["value"] = value
                             if timestamp is not None:
-                                data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                                data_with_metadata[StorageKeys.TIMESTAMP] = (
+                                    timestamp
+                                )
                             if username is not None:
-                                data_with_metadata[StorageKeys.USERNAME] = username
+                                data_with_metadata[StorageKeys.USERNAME] = (
+                                    username
+                                )
 
                             # Update nested in-memory cache
                             if key not in self.cache:
@@ -457,15 +469,14 @@ class CollectionFastPersist:
                             if collection_name not in self.cache[key]:
                                 self.cache[key][collection_name] = {}
 
-                            self.cache[key][collection_name][item_name] = data_with_metadata
+                            self.cache[key][collection_name][item_name] = (
+                                data_with_metadata
+                            )
 
                             # Update nested pending_writes (append to list)
                             if key not in self.pending_writes:
                                 self.pending_writes[key] = {}
-                            if (
-                                collection_name
-                                not in self.pending_writes[key]
-                            ):
+                            if collection_name not in self.pending_writes[key]:
                                 self.pending_writes[key][collection_name] = {}
                             if (
                                 item_name
@@ -486,8 +497,7 @@ class CollectionFastPersist:
 
                 if records:
                     logger.info(
-                        f"Recovered {len(records)} records from "
-                        f"{wal_file.name}"
+                        f"Recovered {len(records)} records from {wal_file.name}"
                     )
             except Exception as e:
                 logger.error(f"Error recovering from {wal_file}: {e}")
@@ -557,7 +567,8 @@ class CollectionFastPersist:
             # Load collection if not already in cache
             self._load_collection(key, collection_name)
 
-            # Normalize all datetime fields in user data to timezone-aware datetime
+            # Normalize all datetime fields in user data to timezone-aware
+            # datetime
             normalized_data = normalize_datetime_fields(data)
 
             # Add value, timestamp, and username to data dict (for cache)
@@ -629,7 +640,9 @@ class CollectionFastPersist:
 
     def get_key(
         self, key: str, collection_name: str | None = None
-    ) -> dict[str, dict[str, dict[str, Any]]] | dict[str, dict[str, Any]] | None:
+    ) -> (
+        dict[str, dict[str, dict[str, Any]]] | dict[str, dict[str, Any]] | None
+    ):
         """Get data for a given key.
 
         Args:
@@ -695,6 +708,9 @@ class CollectionFastPersist:
 
         with self.flush_lock:
             try:
+                # Get extra column names for SQL building
+                extra_cols = get_extra_column_names(self.config.extra_schema)
+
                 # Prepare batch data for history table
                 batch_data = []
                 for key, coll_dict in writes_to_flush.items():
@@ -742,47 +758,62 @@ class CollectionFastPersist:
                                     if k != "value"
                                 }
 
+                                # Extract extra column values
+                                extra_values = extract_extra_values(
+                                    data, self.config.extra_schema
+                                )
+
                                 # Increment version for each update
                                 current_version += 1
 
-                                batch_data.append(
-                                    (
-                                        key,
-                                        coll_name,
-                                        item_name,
-                                        serialize_to_json(data_without_value),
-                                        value_int,
-                                        value_float,
-                                        value_string,
-                                        timestamp,
-                                        status,
-                                        status_int,
-                                        username,
-                                        dt.datetime.now(),
-                                        current_version,
-                                    )
-                                )
+                                row = [
+                                    key,
+                                    coll_name,
+                                    item_name,
+                                    serialize_to_json(data_without_value),
+                                    value_int,
+                                    value_float,
+                                    value_string,
+                                    timestamp,
+                                    status,
+                                    status_int,
+                                    username,
+                                    dt.datetime.now(),
+                                    current_version,
+                                ] + extra_values
+                                batch_data.append(tuple(row))
+
+                # Build column list for INSERT
+                base_cols = (
+                    "key, collection_name, item_name, data, "
+                    "value_int, value_float, value_string, "
+                    "timestamp, status, status_int, username, "
+                    "updated_at, version"
+                )
+                if extra_cols:
+                    all_cols = base_cols + ", " + ", ".join(extra_cols)
+                else:
+                    all_cols = base_cols
+
+                # Build placeholders
+                num_cols = 13 + len(extra_cols)
+                placeholders = ", ".join(["?"] * num_cols)
 
                 # Batch insert to history DB (append all versions)
                 self.history_conn.execute("BEGIN TRANSACTION")
 
                 self.history_conn.executemany(
-                    """
+                    f"""
                     INSERT INTO storage_history
-                    (key, collection_name, item_name, data,
-                     value_int, value_float, value_string,
-                     timestamp, status, status_int, username,
-                     updated_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ({all_cols})
+                    VALUES ({placeholders})
                     """,
                     batch_data,
                 )
 
                 self.history_conn.execute("COMMIT")
 
-                logger.info(
-                    f"Flushed {len(batch_data)} records to history DB"
-                )
+                logger.info(f"Flushed {len(batch_data)} records to history DB")
 
                 # Clean up old WAL files
                 self._cleanup_old_wals()
@@ -799,14 +830,15 @@ class CollectionFastPersist:
                             if coll_name not in self.pending_writes[key]:
                                 self.pending_writes[key][coll_name] = {}
                             for item_name, failed_list in item_dict.items():
-                                if item_name in self.pending_writes[key][coll_name]:
-                                    # Prepend failed writes before newer ones
-                                    self.pending_writes[key][coll_name][item_name] = (
-                                        failed_list + self.pending_writes[key][coll_name][item_name]
+                                curr = self.pending_writes[key][coll_name]
+                                if item_name in curr:
+                                    # Prepend failed writes before newer
+                                    curr[item_name] = (
+                                        failed_list + curr[item_name]
                                     )
                                 else:
                                     # No newer writes, just restore
-                                    self.pending_writes[key][coll_name][item_name] = failed_list
+                                    curr[item_name] = failed_list
 
     def _update_latest_table(self):
         """Update latest values table with all modified records."""
@@ -815,6 +847,9 @@ class CollectionFastPersist:
             return
 
         try:
+            # Get extra column names for SQL building
+            extra_cols = get_extra_column_names(self.config.extra_schema)
+
             batch_data = []
 
             for key, collection_name, item_name in self.modified_records:
@@ -829,9 +864,7 @@ class CollectionFastPersist:
                 data = self.cache[key][collection_name][item_name]
 
                 # Extract special fields
-                timestamp = parse_timestamp(
-                    data.get(StorageKeys.TIMESTAMP)
-                )
+                timestamp = parse_timestamp(data.get(StorageKeys.TIMESTAMP))
                 status = data.get(StorageKeys.STATUS)
                 status_int = data.get(StorageKeys.STATUS_INT)
                 username = data.get(StorageKeys.USERNAME)
@@ -854,44 +887,59 @@ class CollectionFastPersist:
                     k: v for k, v in data.items() if k != "value"
                 }
 
-                batch_data.append(
-                    (
-                        key,
-                        collection_name,
-                        item_name,
-                        serialize_to_json(data_without_value),
-                        value_int,
-                        value_float,
-                        value_string,
-                        timestamp,
-                        status,
-                        status_int,
-                        username,
-                        dt.datetime.now(),
-                        1,  # version always 1 in latest table
-                    )
+                # Extract extra column values
+                extra_values = extract_extra_values(
+                    data, self.config.extra_schema
                 )
+
+                row = [
+                    key,
+                    collection_name,
+                    item_name,
+                    serialize_to_json(data_without_value),
+                    value_int,
+                    value_float,
+                    value_string,
+                    timestamp,
+                    status,
+                    status_int,
+                    username,
+                    dt.datetime.now(),
+                    1,  # version always 1 in latest table
+                ] + extra_values
+                batch_data.append(tuple(row))
+
+            # Build column list for INSERT
+            base_cols = (
+                "key, collection_name, item_name, data, "
+                "value_int, value_float, value_string, "
+                "timestamp, status, status_int, username, "
+                "updated_at, version"
+            )
+            if extra_cols:
+                all_cols = base_cols + ", " + ", ".join(extra_cols)
+            else:
+                all_cols = base_cols
+
+            # Build placeholders
+            num_cols = 13 + len(extra_cols)
+            placeholders = ", ".join(["?"] * num_cols)
 
             # Batch update latest DB
             self.latest_conn.execute("BEGIN TRANSACTION")
 
             self.latest_conn.executemany(
-                """
+                f"""
                 INSERT OR REPLACE INTO storage_latest
-                (key, collection_name, item_name, data,
-                 value_int, value_float, value_string,
-                 timestamp, status, status_int, username,
-                 updated_at, version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ({all_cols})
+                VALUES ({placeholders})
                 """,
                 batch_data,
             )
 
             self.latest_conn.execute("COMMIT")
 
-            logger.info(
-                f"Updated {len(batch_data)} records in latest table"
-            )
+            logger.info(f"Updated {len(batch_data)} records in latest table")
 
             # Clear modified records tracking
             self.modified_records.clear()
@@ -1035,8 +1083,7 @@ class CollectionFastPersist:
             return 0
 
         logger.info(
-            f"Rebuilding history from {len(wal_files)} WAL files "
-            f"in {date_str}"
+            f"Rebuilding history from {len(wal_files)} WAL files in {date_str}"
         )
 
         records_recovered = 0
@@ -1059,18 +1106,23 @@ class CollectionFastPersist:
                         username = record.get("username")
                         timestamp = parse_timestamp(record.get("timestamp"))
 
-                        # Normalize all datetime fields to timezone-aware datetime
+                        # Normalize all datetime fields to timezone-aware
+                        # datetime
                         data = normalize_datetime_fields(data)
 
-                        # Merge metadata into data dict for cache (same as store())
+                        # Merge metadata into data dict for cache (same as
+                        # store())
                         data_with_metadata = dict(data)
                         data_with_metadata["value"] = value
                         if timestamp is not None:
-                            data_with_metadata[StorageKeys.TIMESTAMP] = timestamp
+                            data_with_metadata[StorageKeys.TIMESTAMP] = (
+                                timestamp
+                            )
                         if username is not None:
                             data_with_metadata[StorageKeys.USERNAME] = username
 
-                        # Remove value from data before storing as JSON (same as flush)
+                        # Remove value from data before storing as JSON (same as
+                        # flush)
                         data_without_value = {
                             k: v
                             for k, v in data_with_metadata.items()
@@ -1135,9 +1187,9 @@ class CollectionFastPersist:
                         if collection_name not in self.cache[key]:
                             self.cache[key][collection_name] = {}
 
-                        self.cache[key][collection_name][
-                            item_name
-                        ] = data_with_metadata
+                        self.cache[key][collection_name][item_name] = (
+                            data_with_metadata
+                        )
 
                         records_recovered += 1
 
@@ -1247,9 +1299,7 @@ class CollectionFastPersist:
                 batch_data,
             )
 
-            logger.info(
-                f"Rebuilt latest table with {len(batch_data)} records"
-            )
+            logger.info(f"Rebuilt latest table with {len(batch_data)} records")
             return len(batch_data)
 
         except Exception as e:

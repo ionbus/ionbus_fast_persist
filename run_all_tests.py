@@ -103,6 +103,10 @@ def main():
             "Shared utilities: parse_timestamp timezone handling",
             [python_cmd, "test_parse_timestamp.py"],
         ),
+        (
+            "Extra schema: Both modules",
+            [python_cmd, "test_extra_schema.py"],
+        ),
         # Crash recovery tests
         (
             "dated_fast_persist: Crash simulation (Stage 1)",

@@ -74,6 +74,7 @@ A high-performance Python persistence layer with collection-based organization, 
 - **In-memory caching** with lazy collection loading
 - **Database health checks** for corruption detection
 - **Automatic backups** with configurable retention
+- **Extra schema support** for custom typed columns in DuckDB
 
 ## Features
 
@@ -288,6 +289,7 @@ storage = CollectionFastPersist(dt.date.today(), config=config)
 | `batch_size` | `1000` | Number of records before triggering batch flush |
 | `duckdb_flush_interval_seconds` | `30` | Force flush interval in seconds |
 | `retain_days` | `5` | Number of days to retain backups |
+| `extra_schema` | `None` | Dict mapping column names to PyArrow type names |
 
 ## Collection Organization
 
@@ -347,6 +349,82 @@ storage.store(..., value="thirty")   # now string - no warning!
 - **Updates**: On shutdown (via change tracking)
 - **Schema**: Same as history (version always 1)
 - **Use case**: Fast current-value queries
+
+## Extra Schema (Custom Typed Columns)
+
+Define custom typed columns that are stored in both history and latest
+DuckDB tables. Values come from the `data` dict - if missing, they're NULL.
+
+```python
+import datetime as dt
+from collection_fast_persist import CollectionFastPersist, CollectionConfig
+
+# Define extra columns using PyArrow type names
+config = CollectionConfig(
+    base_dir="./my_storage",
+    extra_schema={
+        "priority": "int32",
+        "score": "float64",
+        "category": "string",
+    },
+)
+
+storage = CollectionFastPersist(dt.date.today(), config=config)
+
+# Store data - extra schema values extracted from data dict
+storage.store(
+    key="task_1",
+    data={
+        "label": "High Priority Task",
+        "priority": 1,           # → priority column (INTEGER)
+        "score": 95.5,           # → score column (DOUBLE)
+        "category": "urgent",    # → category column (VARCHAR)
+    },
+    item_name="item_a",
+    collection_name="tasks",
+    value=100,
+)
+
+# Missing extra schema values become NULL
+storage.store(
+    key="task_2",
+    data={
+        "label": "Low Priority Task",
+        "priority": 5,
+        # score, category missing → NULL in DB
+    },
+    item_name="item_b",
+    collection_name="tasks",
+    value=50,
+)
+
+storage.close()
+```
+
+**Supported PyArrow Types:**
+| PyArrow Type | DuckDB Type |
+|--------------|-------------|
+| `string` | VARCHAR |
+| `int64` | BIGINT |
+| `int32` | INTEGER |
+| `int16` | SMALLINT |
+| `int8` | TINYINT |
+| `uint64` | UBIGINT |
+| `uint32` | UINTEGER |
+| `uint16` | USMALLINT |
+| `uint8` | UTINYINT |
+| `float64` | DOUBLE |
+| `float32` | FLOAT |
+| `bool` | BOOLEAN |
+| `timestamp[us]`, `timestamp[ns]`, `timestamp[ms]`, `timestamp[s]` | TIMESTAMP |
+| `date32`, `date64` | DATE |
+
+**Important Notes:**
+- Extra schema only applies to newly created tables (no ALTER TABLE migrations)
+- Column names must not conflict with reserved names (`key`, `collection_name`,
+  `item_name`, `data`, `value_int`, `value_float`, `value_string`, `timestamp`,
+  `status`, `status_int`, `username`, `updated_at`, `version`)
+- Invalid column names or types raise `ExtraSchemaError` at initialization
 
 ## Database Health Checks
 
