@@ -7,6 +7,12 @@ when passed to store() method.
 from __future__ import annotations
 
 import datetime as dt
+import site
+from pathlib import Path
+
+parent_dir = Path(__file__).parent.parent.parent
+raise RuntimeError(f"{parent_dir}")
+site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALConfig, WALDuckDBStorage
 

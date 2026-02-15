@@ -5,10 +5,14 @@ Runs all test suites in sequence and provides a summary report.
 
 from __future__ import annotations
 
+import site
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+parent_dir = Path(__file__).parent.parent.parent
+site.addsitedir(str(parent_dir))
 
 
 def run_test(test_name: str, command: list[str]) -> tuple[bool, float, str]:
@@ -163,8 +167,7 @@ def main():
         # (subsequent stages depend on previous ones)
         if not success and "Crash" in test_name:
             print(
-                f"\n⚠ Skipping remaining crash recovery stages "
-                f"due to failure"
+                f"\n⚠ Skipping remaining crash recovery stages due to failure"
             )
             # Skip to next non-crash test
             continue
