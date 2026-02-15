@@ -7,7 +7,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import parse_timestamp
@@ -37,13 +36,13 @@ if __name__ == "__main__":
     # Verify
     print("\n" + "=" * 60)
     if result2.tzinfo == dt.timezone.utc:
-        print("✓ SUCCESS: Naive timestamp assumed UTC!")
+        print("[OK] SUCCESS: Naive timestamp assumed UTC!")
     else:
-        print(f"✗ FAILED: Expected UTC, got {result2.tzinfo}")
+        print(f"[FAIL] FAILED: Expected UTC, got {result2.tzinfo}")
 
     if result3.tzinfo == dt.timezone.utc:
-        print("✓ SUCCESS: Z converted to UTC!")
+        print("[OK] SUCCESS: Z converted to UTC!")
     else:
-        print(f"✗ FAILED: Expected UTC, got {result3.tzinfo}")
+        print(f"[FAIL] FAILED: Expected UTC, got {result3.tzinfo}")
 
     print("\nTest complete!")

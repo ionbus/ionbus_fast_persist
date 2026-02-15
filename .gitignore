@@ -30,3 +30,6 @@ collection_storage
 crash_test_collection 
 collection_test_storage 
 test_history_retention 
+test_*
+crash_*
+extra_*

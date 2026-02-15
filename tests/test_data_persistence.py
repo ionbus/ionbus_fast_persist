@@ -11,7 +11,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALConfig, WALDuckDBStorage
@@ -56,15 +55,15 @@ if __name__ == "__main__":
     success = True
 
     if user1 and user1.get("name") == "Alice" and user1.get("score") == 100:
-        print("  ✓ user_1 data intact: Alice, score=100")
+        print("  [OK] user_1 data intact: Alice, score=100")
     else:
-        print(f"  ✗ FAILED: user_1 = {user1}")
+        print(f"  [FAIL] FAILED: user_1 = {user1}")
         success = False
 
     if user2 and user2.get("name") == "Bob" and user2.get("score") == 200:
-        print("  ✓ user_2 data intact: Bob, score=200")
+        print("  [OK] user_2 data intact: Bob, score=200")
     else:
-        print(f"  ✗ FAILED: user_2 = {user2}")
+        print(f"  [FAIL] FAILED: user_2 = {user2}")
         success = False
 
     # Session 3: Add more data and verify both old and new exist
@@ -85,9 +84,9 @@ if __name__ == "__main__":
     user3_check = storage2.get_key_process("user_3", "game")
 
     if user1_check and user3_check:
-        print("  ✓ Both old (user_1) and new (user_3) data coexist")
+        print("  [OK] Both old (user_1) and new (user_3) data coexist")
     else:
-        print("  ✗ FAILED: Old or new data missing")
+        print("  [FAIL] FAILED: Old or new data missing")
         success = False
 
     storage2.flush_data_to_duckdb()
@@ -102,18 +101,18 @@ if __name__ == "__main__":
     final_user3 = storage3.get_key_process("user_3", "game")
 
     if final_user1 and final_user2 and final_user3:
-        print("  ✓ All 3 users persist across multiple sessions!")
+        print("  [OK] All 3 users persist across multiple sessions!")
         print(f"    user_1: {final_user1.get('name')}")
         print(f"    user_2: {final_user2.get('name')}")
         print(f"    user_3: {final_user3.get('name')}")
     else:
-        print("  ✗ FAILED: Some data lost")
+        print("  [FAIL] FAILED: Some data lost")
         success = False
 
     storage3.close()
 
     print("\n" + "=" * 60)
     if success:
-        print("✓ SUCCESS: Data persists correctly (no DROP TABLE bug)!")
+        print("[OK] SUCCESS: Data persists correctly (no DROP TABLE bug)!")
     else:
-        print("✗ FAILED: Data persistence issues detected")
+        print("[FAIL] FAILED: Data persistence issues detected")

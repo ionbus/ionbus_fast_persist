@@ -7,7 +7,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import CollectionFastPersist, CollectionConfig
@@ -58,9 +57,9 @@ if __name__ == "__main__":
 
     # Verify we have 5 versions
     if len(result) == 5:
-        print("\n✓ SUCCESS: History table retains all 5 versions!")
+        print("\n[OK] SUCCESS: History table retains all 5 versions!")
     else:
-        print(f"\n✗ FAILED: Expected 5 versions, got {len(result)}")
+        print(f"\n[FAIL] FAILED: Expected 5 versions, got {len(result)}")
 
     # Query latest table
     print("\nQuerying latest table...")
@@ -79,9 +78,9 @@ if __name__ == "__main__":
         print(f"  Version {version}: value={value_int}")
 
     if len(latest_result) == 1 and latest_result[0][1] == 35:
-        print("\n✓ SUCCESS: Latest table contains only the final value (35)!")
+        print("\n[OK] SUCCESS: Latest table contains only the final value (35)!")
     else:
-        print(f"\n✗ FAILED: Latest table should have 1 row with value=35")
+        print(f"\n[FAIL] FAILED: Latest table should have 1 row with value=35")
 
     storage.close()
     print("\n" + "=" * 60)

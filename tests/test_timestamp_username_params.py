@@ -11,7 +11,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALConfig, WALDuckDBStorage
@@ -39,9 +38,9 @@ if __name__ == "__main__":
     # Compare as datetime objects
     expected_dt = dt.datetime.fromisoformat(custom_timestamp.replace("Z", "+00:00"))
     if result_ts == expected_dt:
-        print(f"✓ Timestamp preserved: {result_ts}")
+        print(f"[OK] Timestamp preserved: {result_ts}")
     else:
-        print(f"✗ FAILED: Expected {expected_dt}, got {result_ts}")
+        print(f"[FAIL] FAILED: Expected {expected_dt}, got {result_ts}")
 
     # Test 2: Explicit username parameter
     print("\n[Test 2] Explicit username parameter")
@@ -54,9 +53,9 @@ if __name__ == "__main__":
 
     result2 = storage.get_key_process("test_key2", "worker2")
     if result2 and result2.get("username") == "alice":
-        print(f"✓ Username preserved: {result2['username']}")
+        print(f"[OK] Username preserved: {result2['username']}")
     else:
-        print(f"✗ FAILED: Expected 'alice', got {result2.get('username') if result2 else 'None'}")
+        print(f"[FAIL] FAILED: Expected 'alice', got {result2.get('username') if result2 else 'None'}")
 
     # Test 3: Both parameters together
     print("\n[Test 3] Both timestamp and username together")
@@ -76,9 +75,9 @@ if __name__ == "__main__":
     user_ok = result3 and result3.get("username") == "bob"
 
     if ts_ok and user_ok:
-        print(f"✓ Both preserved: ts={result3_ts}, user={result3['username']}")
+        print(f"[OK] Both preserved: ts={result3_ts}, user={result3['username']}")
     else:
-        print(f"✗ FAILED: ts={result3_ts}, user={result3.get('username') if result3 else 'None'}")
+        print(f"[FAIL] FAILED: ts={result3_ts}, user={result3.get('username') if result3 else 'None'}")
 
     # Test 4: Flush and reload to verify persistence
     print("\n[Test 4] Persistence across flush/reload")
@@ -91,9 +90,9 @@ if __name__ == "__main__":
     result_after_ts = result_after.get("timestamp") if result_after else None
 
     if result_after_ts == expected_dt:
-        print(f"✓ Timestamp persisted: {result_after_ts}")
+        print(f"[OK] Timestamp persisted: {result_after_ts}")
     else:
-        print(f"✗ FAILED after reload: Expected {expected_dt}, got {result_after_ts}")
+        print(f"[FAIL] FAILED after reload: Expected {expected_dt}, got {result_after_ts}")
 
     storage2.close()
 
