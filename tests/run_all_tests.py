@@ -46,18 +46,18 @@ def run_test(test_name: str, command: list[str]) -> tuple[bool, float, str]:
             print("STDERR:", result.stderr, file=sys.stderr)
 
         success = result.returncode == 0
-        status = "✓ PASSED" if success else "✗ FAILED"
+        status = "[OK] PASSED" if success else "[FAIL] FAILED"
         print(f"\n{status} ({duration:.2f}s)")
 
         return success, duration, result.stdout + result.stderr
 
     except subprocess.TimeoutExpired:
         duration = time.time() - start_time
-        print(f"\n✗ TIMEOUT ({duration:.2f}s)")
+        print(f"\n[FAIL] TIMEOUT ({duration:.2f}s)")
         return False, duration, "Test timed out"
     except Exception as e:
         duration = time.time() - start_time
-        print(f"\n✗ ERROR: {e}")
+        print(f"\n[FAIL] ERROR: {e}")
         return False, duration, str(e)
 
 
@@ -167,7 +167,7 @@ def main():
         # (subsequent stages depend on previous ones)
         if not success and "Crash" in test_name:
             print(
-                f"\n⚠ Skipping remaining crash recovery stages due to failure"
+                f"\nWARNING: Skipping remaining crash recovery stages due to failure"
             )
             # Skip to next non-crash test
             continue
@@ -181,7 +181,7 @@ def main():
     failed = len(results) - passed
 
     for test_name, success, duration in results:
-        status = "✓" if success else "✗"
+        status = "[OK]" if success else "[FAIL]"
         print(f"{status} {test_name:55s} ({duration:.2f}s)")
 
     print("=" * 70)
@@ -192,10 +192,10 @@ def main():
     print("=" * 70)
 
     if failed == 0:
-        print("\n🎉 All tests passed!")
+        print("\nSUCCESS: All tests passed!")
         return 0
     else:
-        print(f"\n❌ {failed} test(s) failed")
+        print(f"\nERROR: {failed} test(s) failed")
         return 1
 
 

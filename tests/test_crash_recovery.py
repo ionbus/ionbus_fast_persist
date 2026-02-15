@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
@@ -120,18 +119,18 @@ def stage2_recover_and_verify():
     for key, expected_processes in expected_data.items():
         recovered_data = storage.get_key(key)
         if recovered_data is None:
-            print(f"\n✗ FAILED: Key '{key}' not found!")
+            print(f"\n[FAIL] FAILED: Key '{key}' not found!")
             all_verified = False
             continue
 
-        print(f"\n✓ Key '{key}' recovered with {len(recovered_data)} processes")
+        print(f"\n[OK] Key '{key}' recovered with {len(recovered_data)} processes")
 
         for process in expected_processes:
             if process in recovered_data:
                 data = recovered_data[process]
-                print(f"  ✓ Process '{process}': {list(data.keys())}")
+                print(f"  [OK] Process '{process}': {list(data.keys())}")
             else:
-                print(f"  ✗ FAILED: Process '{process}' missing!")
+                print(f"  [FAIL] FAILED: Process '{process}' missing!")
                 all_verified = False
 
     # Test specific queries
@@ -141,20 +140,20 @@ def stage2_recover_and_verify():
 
     server1_metrics = storage.get_key_process("metrics", "server1")
     if server1_metrics:
-        print(f"\n✓ server1 metrics: cpu={server1_metrics.get('cpu')}, "
+        print(f"\n[OK] server1 metrics: cpu={server1_metrics.get('cpu')}, "
               f"memory={server1_metrics.get('memory')}, "
               f"username={server1_metrics.get(StorageKeys.USERNAME)}")
     else:
-        print("\n✗ FAILED: Could not retrieve server1 metrics")
+        print("\n[FAIL] FAILED: Could not retrieve server1 metrics")
         all_verified = False
 
     server3_status = storage.get_key_process("status", "server3")
     if server3_status:
-        print(f"✓ server3 status: state={server3_status.get('state')}, "
+        print(f"[OK] server3 status: state={server3_status.get('state')}, "
               f"uptime={server3_status.get('uptime')}, "
               f"username={server3_status.get(StorageKeys.USERNAME)}")
     else:
-        print("✗ FAILED: Could not retrieve server3 status")
+        print("[FAIL] FAILED: Could not retrieve server3 status")
         all_verified = False
 
     # Clean shutdown (will automatically export to parquet)
@@ -162,7 +161,7 @@ def stage2_recover_and_verify():
     print("CLEAN SHUTDOWN (with automatic parquet export)")
     print("=" * 60)
     storage.close()
-    print("✓ Clean shutdown completed")
+    print("[OK] Clean shutdown completed")
 
     stats_after_close = storage.get_stats()
     print(f"Final stats: {stats_after_close}")
@@ -176,9 +175,9 @@ def stage2_recover_and_verify():
     # Final result
     print("\n" + "=" * 60)
     if all_verified:
-        print("✓ ALL TESTS PASSED!")
+        print("[OK] ALL TESTS PASSED!")
     else:
-        print("✗ SOME TESTS FAILED!")
+        print("[FAIL] SOME TESTS FAILED!")
     print("=" * 60)
 
 
@@ -190,7 +189,7 @@ def verify_parquet_structure(parquet_path: str):
     base_path = Path(parquet_path)
 
     if not base_path.exists():
-        print(f"✗ FAILED: Parquet path does not exist: {parquet_path}")
+        print(f"[FAIL] FAILED: Parquet path does not exist: {parquet_path}")
         return
 
     # Find all parquet files
@@ -205,19 +204,19 @@ def verify_parquet_structure(parquet_path: str):
         partition_path = base_path / f"process_name={process}" / f"date={date_str}"
         if partition_path.exists():
             files = list(partition_path.glob("*.parquet"))
-            print(f"✓ Partition process_name={process}, date={date_str}: "
+            print(f"[OK] Partition process_name={process}, date={date_str}: "
                   f"{len(files)} file(s)")
         else:
-            print(f"✗ FAILED: Missing partition for process={process}")
+            print(f"[FAIL] FAILED: Missing partition for process={process}")
 
     # Read and verify parquet data
     if parquet_files:
         print("\nReading parquet data to verify contents...")
         df = pd.read_parquet(parquet_path)
-        print(f"✓ Total records in parquet: {len(df)}")
-        print(f"✓ Columns: {list(df.columns)}")
-        print(f"✓ Unique keys: {df['key'].unique().tolist()}")
-        print(f"✓ Unique processes: {df['process_name'].unique().tolist()}")
+        print(f"[OK] Total records in parquet: {len(df)}")
+        print(f"[OK] Columns: {list(df.columns)}")
+        print(f"[OK] Unique keys: {df['key'].unique().tolist()}")
+        print(f"[OK] Unique processes: {df['process_name'].unique().tolist()}")
 
         # Show sample data
         print("\nSample data from parquet:")

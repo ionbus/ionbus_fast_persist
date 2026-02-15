@@ -7,7 +7,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALDuckDBStorage, WALConfig
@@ -71,11 +70,11 @@ if __name__ == "__main__":
     # Verify
     print("\n" + "=" * 60)
     if key_data2 and None in key_data2 and "" in key_data2:
-        print("✓ SUCCESS: Both None and '' preserved!")
+        print("[OK] SUCCESS: Both None and '' preserved!")
         print(f"  None -> {key_data2[None].get('value')}")
         print(f"  ''   -> {key_data2[''].get('value')}")
     else:
-        print("✗ FAILED: None or '' not preserved")
+        print("[FAIL] FAILED: None or '' not preserved")
         if key_data2:
             print(f"  Keys: {list(key_data2.keys())}")
 

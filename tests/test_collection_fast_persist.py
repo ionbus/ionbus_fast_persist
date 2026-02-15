@@ -7,7 +7,6 @@ import site
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import (
@@ -104,7 +103,7 @@ if __name__ == "__main__":
         value="555-1234",
     )
 
-    print("✓ Stored 5 items across 2 collections")
+    print("[OK] Stored 5 items across 2 collections")
 
     # Test 2: Retrieve entire collections
     print("\n[Test 2] Retrieving collections...")
@@ -136,14 +135,14 @@ if __name__ == "__main__":
     age_data = storage.get_item("user_profile", "personal_info", "age")
     if age_data:
         print(
-            f"✓ Age: {age_data.get('value')} "
+            f"[OK] Age: {age_data.get('value')} "
             f"(type={type(age_data.get('value')).__name__})"
         )
 
     email_data = storage.get_item("user_profile", "contact_info", "email")
     if email_data:
         print(
-            f"✓ Email: {email_data.get('value')} "
+            f"[OK] Email: {email_data.get('value')} "
             f"(status={email_data.get(StorageKeys.STATUS)})"
         )
 
@@ -169,7 +168,7 @@ if __name__ == "__main__":
     )
     if age_data_updated:
         print(
-            f"✓ Updated age: {age_data_updated.get('value')} "
+            f"[OK] Updated age: {age_data_updated.get('value')} "
             f"(type={type(age_data_updated.get('value')).__name__})"
         )
 
@@ -206,7 +205,7 @@ if __name__ == "__main__":
             value=seat_num,
         )
 
-    print("✓ Assigned 8 seats across 2 classrooms")
+    print("[OK] Assigned 8 seats across 2 classrooms")
 
     # Retrieve classroom A seats
     classroom_a = storage.get_key("classroom_seating", "classroom_a")
@@ -235,8 +234,8 @@ if __name__ == "__main__":
         storage.latest_db_path, "storage_latest", storage.latest_conn
     )
 
-    print(f"✓ History DB health: {'OK' if history_healthy else 'FAILED'}")
-    print(f"✓ Latest DB health: {'OK' if latest_healthy else 'FAILED'}")
+    print(f"[OK] History DB health: {'OK' if history_healthy else 'FAILED'}")
+    print(f"[OK] Latest DB health: {'OK' if latest_healthy else 'FAILED'}")
 
     # Clean shutdown (updates latest table and creates backups)
     print("\n[Test 8] Clean shutdown...")
@@ -260,7 +259,7 @@ if __name__ == "__main__":
     )
     if age_after_restart:
         print(
-            f"✓ Age after restart: {age_after_restart.get('value')} "
+            f"[OK] Age after restart: {age_after_restart.get('value')} "
             f"(type={type(age_after_restart.get('value')).__name__})"
         )
 
@@ -269,7 +268,7 @@ if __name__ == "__main__":
     )
     if email_after_restart:
         print(
-            f"✓ Email after restart: {email_after_restart.get('value')}"
+            f"[OK] Email after restart: {email_after_restart.get('value')}"
         )
 
     classroom_a_after = storage2.get_key(
@@ -277,7 +276,7 @@ if __name__ == "__main__":
     )
     if classroom_a_after:
         print(
-            f"✓ Classroom A after restart: {len(classroom_a_after)} seats"
+            f"[OK] Classroom A after restart: {len(classroom_a_after)} seats"
         )
 
     stats_after = storage2.get_stats()
@@ -286,5 +285,5 @@ if __name__ == "__main__":
     storage2.close()
 
     print("\n" + "=" * 60)
-    print("✓ All tests completed successfully!")
+    print("[OK] All tests completed successfully!")
     print("=" * 60)

@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 parent_dir = Path(__file__).parent.parent.parent
-raise RuntimeError(f"{parent_dir}")
 site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import WALConfig, WALDuckDBStorage
@@ -61,17 +60,17 @@ if __name__ == "__main__":
     success = True
 
     if result is None:
-        print("  ✗ FAILED: No data recovered")
+        print("  [FAIL] FAILED: No data recovered")
         success = False
     else:
         # Check timestamp (now a datetime object)
         recovered_ts = result.get("timestamp")
         expected_dt = dt.datetime.fromisoformat(custom_timestamp.replace("Z", "+00:00"))
         if recovered_ts == expected_dt:
-            print(f"  ✓ Timestamp recovered: {recovered_ts}")
+            print(f"  [OK] Timestamp recovered: {recovered_ts}")
         else:
             print(
-                f"  ✗ FAILED: Expected timestamp {expected_dt}, "
+                f"  [FAIL] FAILED: Expected timestamp {expected_dt}, "
                 f"got {recovered_ts}"
             )
             success = False
@@ -79,10 +78,10 @@ if __name__ == "__main__":
         # Check username
         recovered_user = result.get("username")
         if recovered_user == custom_username:
-            print(f"  ✓ Username recovered: {recovered_user}")
+            print(f"  [OK] Username recovered: {recovered_user}")
         else:
             print(
-                f"  ✗ FAILED: Expected username {custom_username}, "
+                f"  [FAIL] FAILED: Expected username {custom_username}, "
                 f"got {recovered_user}"
             )
             success = False
@@ -90,19 +89,19 @@ if __name__ == "__main__":
         # Check process_name
         recovered_proc = result.get("process_name")
         if recovered_proc == "worker1":
-            print(f"  ✓ Process name recovered: {recovered_proc}")
+            print(f"  [OK] Process name recovered: {recovered_proc}")
         else:
             print(
-                f"  ✗ FAILED: Expected process_name 'worker1', "
+                f"  [FAIL] FAILED: Expected process_name 'worker1', "
                 f"got {recovered_proc}"
             )
             success = False
 
         # Check original data
         if result.get("value") == 100:
-            print(f"  ✓ Original data intact: value={result.get('value')}")
+            print(f"  [OK] Original data intact: value={result.get('value')}")
         else:
-            print(f"  ✗ FAILED: Original data corrupted")
+            print(f"  [FAIL] FAILED: Original data corrupted")
             success = False
 
     # Clean up
@@ -110,6 +109,6 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     if success:
-        print("✓ SUCCESS: WAL recovery preserves all metadata!")
+        print("[OK] SUCCESS: WAL recovery preserves all metadata!")
     else:
-        print("✗ FAILED: WAL recovery lost metadata")
+        print("[FAIL] FAILED: WAL recovery lost metadata")

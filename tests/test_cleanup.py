@@ -57,10 +57,10 @@ def cleanup_test_artifacts(verbose: bool = True) -> int:
                 shutil.rmtree(path, onerror=_handle_remove_readonly)
                 removed_count += 1
                 if verbose:
-                    print(f"✓ Removed: {dir_path}")
+                    print(f"[OK] Removed: {dir_path}")
             except Exception as e:
                 if verbose:
-                    print(f"✗ Failed to remove {dir_path}: {e}")
+                    print(f"[FAIL] Failed to remove {dir_path}: {e}")
         elif verbose:
             # Only show if verbose and nothing to clean
             pass
