@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from dated_fast_persist import WALDuckDBStorage, WALConfig
+from ionbus_fast_persist import WALDuckDBStorage, WALConfig
 
 if __name__ == "__main__":
     print("Testing process_name=None preservation...")

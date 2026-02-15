@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 
-from collection_fast_persist import (
+from ionbus_fast_persist import (
     CollectionConfig,
     CollectionFastPersist,
+    StorageKeys,
 )
-from fast_persist_common import StorageKeys
 
 
 if __name__ == "__main__":

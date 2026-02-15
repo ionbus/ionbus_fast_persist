@@ -59,77 +59,90 @@ def run_test(test_name: str, command: list[str]) -> tuple[bool, float, str]:
 
 def main():
     """Run all test suites."""
-    print("Fast Persist - Master Test Runner")
+    print("ionbus_fast_persist - Master Test Runner")
     print("=" * 70)
 
     # Detect Python command (conda environment aware)
     python_cmd = sys.executable
 
+    # Get the directory where this script is located (tests directory)
+    tests_dir = Path(__file__).parent.resolve()
+
+    def test_path(name: str) -> str:
+        """Get absolute path to a test file."""
+        return str(tests_dir / name)
+
     # Define all tests
     tests = [
         # Cleanup first
-        ("Cleanup: Remove old test artifacts", [python_cmd, "test_cleanup.py"]),
+        (
+            "Cleanup: Remove old test artifacts",
+            [python_cmd, test_path("test_cleanup.py")],
+        ),
         # Core functionality tests
         (
             "dated_fast_persist: Basic functionality",
-            [python_cmd, "test_fast_persist.py"],
+            [python_cmd, test_path("test_fast_persist.py")],
         ),
         (
             "collection_fast_persist: Full test suite",
-            [python_cmd, "test_collection_fast_persist.py"],
+            [python_cmd, test_path("test_collection_fast_persist.py")],
         ),
         # Specific feature tests
         (
             "dated_fast_persist: Data persistence (no DROP TABLE)",
-            [python_cmd, "test_data_persistence.py"],
+            [python_cmd, test_path("test_data_persistence.py")],
         ),
         (
             "dated_fast_persist: timestamp/username parameters",
-            [python_cmd, "test_timestamp_username_params.py"],
+            [python_cmd, test_path("test_timestamp_username_params.py")],
         ),
         (
             "dated_fast_persist: WAL metadata recovery",
-            [python_cmd, "test_wal_metadata_recovery.py"],
+            [python_cmd, test_path("test_wal_metadata_recovery.py")],
         ),
         (
             "collection_fast_persist: History retention",
-            [python_cmd, "test_history_retention.py"],
+            [python_cmd, test_path("test_history_retention.py")],
         ),
         (
             "dated_fast_persist: process_name=None preservation",
-            [python_cmd, "test_process_name_none.py"],
+            [python_cmd, test_path("test_process_name_none.py")],
         ),
         (
             "Shared utilities: parse_timestamp timezone handling",
-            [python_cmd, "test_parse_timestamp.py"],
+            [python_cmd, test_path("test_parse_timestamp.py")],
         ),
         (
             "Extra schema: Both modules",
-            [python_cmd, "test_extra_schema.py"],
+            [python_cmd, test_path("test_extra_schema.py")],
         ),
         # Crash recovery tests
         (
             "dated_fast_persist: Crash simulation (Stage 1)",
-            [python_cmd, "test_crash_recovery.py", "1"],
+            [python_cmd, test_path("test_crash_recovery.py"), "1"],
         ),
         (
             "dated_fast_persist: Recovery verification (Stage 2)",
-            [python_cmd, "test_crash_recovery.py", "2"],
+            [python_cmd, test_path("test_crash_recovery.py"), "2"],
         ),
         (
             "collection_fast_persist: Crash simulation (Stage 1)",
-            [python_cmd, "test_collection_crash_recovery.py", "1"],
+            [python_cmd, test_path("test_collection_crash_recovery.py"), "1"],
         ),
         (
             "collection_fast_persist: Recovery verification (Stage 2)",
-            [python_cmd, "test_collection_crash_recovery.py", "2"],
+            [python_cmd, test_path("test_collection_crash_recovery.py"), "2"],
         ),
         (
             "collection_fast_persist: Manual reconstruction (Stage 3)",
-            [python_cmd, "test_collection_crash_recovery.py", "3"],
+            [python_cmd, test_path("test_collection_crash_recovery.py"), "3"],
         ),
         # Final cleanup
-        ("Cleanup: Remove test artifacts", [python_cmd, "test_cleanup.py"]),
+        (
+            "Cleanup: Remove test artifacts",
+            [python_cmd, test_path("test_cleanup.py")],
+        ),
     ]
 
     # Run all tests

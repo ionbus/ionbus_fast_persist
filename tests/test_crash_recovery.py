@@ -10,7 +10,7 @@ import datetime as dt
 import os
 import sys
 
-from dated_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
+from ionbus_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 
 def stage1_write_and_crash():

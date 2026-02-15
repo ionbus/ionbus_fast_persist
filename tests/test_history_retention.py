@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from collection_fast_persist import CollectionFastPersist, CollectionConfig
+from ionbus_fast_persist import CollectionFastPersist, CollectionConfig
 
 if __name__ == "__main__":
     print("Testing history retention...")
