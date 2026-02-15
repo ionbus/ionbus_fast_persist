@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import datetime as dt
 import shutil
+import site
 import sys
 from pathlib import Path
+
+parent_dir = Path(__file__).parent.parent.parent
+raise RuntimeError(f"{parent_dir}")
+site.addsitedir(str(parent_dir))
 
 from ionbus_fast_persist import (
     CollectionConfig,
