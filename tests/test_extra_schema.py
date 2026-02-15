@@ -7,11 +7,12 @@ import shutil
 import sys
 from pathlib import Path
 
-from fast_persist_common import ExtraSchemaError
-from dated_fast_persist import WALDuckDBStorage, WALConfig
-from collection_fast_persist import (
-    CollectionFastPersist,
+from ionbus_fast_persist import (
     CollectionConfig,
+    CollectionFastPersist,
+    ExtraSchemaError,
+    WALConfig,
+    WALDuckDBStorage,
 )
 
 

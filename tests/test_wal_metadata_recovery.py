@@ -11,7 +11,7 @@ import datetime as dt
 import os
 import time
 
-from dated_fast_persist import WALConfig, WALDuckDBStorage
+from ionbus_fast_persist import WALConfig, WALDuckDBStorage
 
 if __name__ == "__main__":
     print("Testing WAL metadata recovery...")

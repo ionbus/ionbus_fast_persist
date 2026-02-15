@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fast_persist_common import parse_timestamp
+from ionbus_fast_persist import parse_timestamp
 
 if __name__ == "__main__":
     print("Testing parse_timestamp timezone handling...")

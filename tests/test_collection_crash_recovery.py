@@ -10,11 +10,11 @@ import datetime as dt
 import sys
 from pathlib import Path
 
-from collection_fast_persist import (
+from ionbus_fast_persist import (
     CollectionConfig,
     CollectionFastPersist,
+    StorageKeys,
 )
-from fast_persist_common import StorageKeys
 
 
 def stage1_write_and_crash():

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fast_persist_common import (
+from .fast_persist_common import (
     RESERVED_COLUMNS_COLLECTION,
     StorageKeys,
     build_extra_columns_sql,

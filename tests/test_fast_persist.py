@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 
-from dated_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
+from ionbus_fast_persist import WALDuckDBStorage, WALConfig, StorageKeys
 
 
 if __name__ == "__main__":
