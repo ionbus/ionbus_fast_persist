@@ -1,0 +1,41 @@
+{% set name = "ionbus-fast-persist" %}
+{% set version = environ.get('GIT_DESCRIBE_TAG', '0.0.0') %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  noarch: python
+  number: 0
+  script: python -m pip install . -vv --no-deps --no-build-isolation
+
+requirements:
+  host:
+    - python >=3.9,<3.14
+    - pip
+    - setuptools
+  run:
+    - python >=3.9,<3.14
+    - duckdb >=0.10
+    - ionbus-utils
+    - pandas <3.0.0
+    - pyarrow >=16.0.1
+    - backports.strenum >=0.4.1  # [py<311]
+
+test:
+  imports:
+    - ionbus_fast_persist
+
+about:
+  home: https://github.com/ionbus/ionbus_fast_persist
+  license: MIT
+  license_family: MIT
+  summary: High-performance Python persistence using WAL and DuckDB
+  description: |
+    High-performance Python persistence layers using Write-Ahead Logs (WAL)
+    and DuckDB. Provides two storage solutions: WALDuckDBStorage for date-based
+    storage isolation and CollectionFastPersist for collection-based organization.
