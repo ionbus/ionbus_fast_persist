@@ -1,0 +1,26 @@
+name: py311_ionbus
+channels:
+  - ionbus
+  - conda-forge
+  - defaults
+dependencies:
+  - typing_extensions
+  - pandas[version='<3.0.0']
+  - pyyaml
+  - cryptography
+  - requests
+  - pydantic
+  - build
+  - setuptools
+  - polars
+  - duckdb
+  - wheel
+  - pyarrow
+  - packaging
+  - python=3.11
+  - pytest
+  - twine
+  - conda-build
+  - anaconda-client
+  - ipython
+  - ionbus-utils
