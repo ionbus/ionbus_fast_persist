@@ -33,3 +33,4 @@ test_history_retention
 test_*
 crash_*
 extra_*
+_version.py 
