@@ -1,6 +1,8 @@
-# Fast Persist
+# Ionbus Fast Persist
 
 High-performance Python persistence layers combining Write-Ahead Logs (WAL) with DuckDB for fast asynchronous writes and reliable storage.
+
+<img src="images/ionbus_fast_persist.png" alt="Ionbus Fast Persist" width="%50">
 
 <!-- TOC start (generated with https://github.com/derlin/bitdowntoc) -->
 
