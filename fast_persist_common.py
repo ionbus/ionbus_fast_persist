@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import logging
 import sys
+
+from ionbus_utils.logging_utils import logger
 
 # Handle StrEnum for different Python versions
 if sys.version_info >= (3, 11):
@@ -13,8 +14,6 @@ if sys.version_info >= (3, 11):
 else:
     from backports.strenum import StrEnum  # type: ignore
 
-# Get logger for this module
-logger = logging.getLogger("fast_persist_common")
 
 # PyArrow type name to DuckDB type mapping
 PYARROW_TO_DUCKDB: dict[str, str] = {
@@ -169,19 +168,6 @@ class StorageKeys(StrEnum):
     STATUS = "status"
     STATUS_INT = "status_int"
     USERNAME = "username"
-
-
-def setup_logger(name: str) -> logging.Logger:
-    """Set up and return a logger with standard configuration.
-
-    Args:
-        name: Name for the logger
-
-    Returns:
-        Configured logger instance
-    """
-    logging.basicConfig(level=logging.INFO)
-    return logging.getLogger(name)
 
 
 def serialize_to_json(data: dict | str) -> str:

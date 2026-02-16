@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ionbus_utils.logging_utils import logger
+
 from .fast_persist_common import (
     RESERVED_COLUMNS_COLLECTION,
     StorageKeys,
@@ -23,11 +25,8 @@ from .fast_persist_common import (
     normalize_datetime_fields,
     parse_timestamp,
     serialize_to_json,
-    setup_logger,
     validate_extra_schema,
 )
-
-logger = setup_logger("collection_fast_persist")
 
 
 class CollectionFastPersistError(Exception):
