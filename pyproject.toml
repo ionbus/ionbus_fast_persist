@@ -4,13 +4,13 @@
 requires = ["setuptools==71.0.0", "wheel", "setuptools-git-versioning>=2.0,<3"]
 
 [project]
-name = "ionbus_fast_persist"
+name = "ionbus-fast-persist"
 authors = [
   { name="Charles Plager", email="cplager@gmail.com" },
 ]
 description = "High-performance Python persistence layers using WAL and DuckDB"
 readme = "readme.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
