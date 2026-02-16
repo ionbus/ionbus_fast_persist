@@ -6,7 +6,7 @@ requires = ["setuptools==71.0.0", "wheel", "setuptools-git-versioning>=2.0,<3"]
 [project]
 name = "ionbus-fast-persist"
 authors = [
-  { name="Charles Plager", email="cplager@gmail.com" },
+  { name="Charles Lewis", email="dev@ionbus.com" },
 ]
 description = "High-performance Python persistence layers using WAL and DuckDB"
 readme = "readme_pip.md"
